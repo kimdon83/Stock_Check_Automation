@@ -508,7 +508,7 @@ if(len(inputKDC)>0):
     # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
     for index,row in df_result1.iterrows():
         po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
-        po_next_bo =po_next_bo.reset_index().drop("index",axis=1)
+        po_next_bo =po_next_bo.sort_values('act_date').reset_index().drop("index",axis=1)
         if( len(po_next_bo) >0):
             df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
             df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
@@ -1288,6 +1288,7 @@ max_column = ws.max_column
 # conditional formatting : availablity
 green_format = PatternFill(fgColor = '00CCFFCC', fill_type='solid')
 red_format = PatternFill(fgColor = '00FF8080', fill_type='solid')
+blue_format = PatternFill(fgColor = '0000FF80', fill_type='solid')
 for k in range(1,max_row+1):
     result_value = str(ws.cell(row=k, column=4).value)
     if result_value == "NO":
@@ -1297,7 +1298,7 @@ for k in range(1,max_row+1):
         ws.cell(row=k, column=4).fill = green_format
         ws.cell(row=k, column=4).font = Font(color = '00008000')
     elif result_value == "YES":
-        ws.cell(row=k, column=4).fill = green_format
+        ws.cell(row=k, column=4).fill = blue_format
         ws.cell(row=k, column=4).font = Font(color = '00008000')
     else:
         ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
@@ -1316,7 +1317,18 @@ for k in range(1,max_row+1): # NO and yes
     result_value2 = str(ws.cell(row=k, column=7).value)
     if result_value == 'NO' and result_value2=='yes':
         ws.cell(row=k, column=7).fill = red_format
+        ws.cell(row=k, column=4).fill = red_format
         ws.cell(row=k, column=7).font = Font(color = '00800000')
+    elif result_value == 'NO' and result_value2=='no':
+        ws.cell(row=k, column=7).fill = blue_format
+        ws.cell(row=k, column=7).font = Font(color = '00800000')
+for k in range(1,max_row+1): # ms 91 or 41
+    result_value = str(ws.cell(row=k, column=6).value)
+    if (result_value == '41') or (result_value=='91'):
+        ws.cell(row=k, column=6).fill = blue_format
+        ws.cell(row=k, column=7).font = Font(color = '00800000')
+    
+
 
 for column_cells in ws.columns:
     new_column_length = max(len(str(cell.value)) for cell in column_cells)
