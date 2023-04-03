@@ -16,8 +16,33 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
+
 # %%
 timelist = []
+
+# %%
+targetPlant='simulate_KDC'
+print(f'target plant:{targetPlant}')
+todays = datetime.today()
+# first_days = todays.replace(day=1)
+# last_days = datetime(todays.year, todays.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
+# days_left = last_days - todays
+today = todays.strftime('%Y-%m-%d')
+curYM = todays.strftime('%Y%m')
+# first_day = first_days.strftime('%Y-%m-%d')
+# last_day = last_days.strftime('%Y-%m-%d')
+# business_days = np.busday_count(begindates=first_day, enddates=today) #By today
+# business_days_thismonth = np.busday_count(begindates=first_day, enddates=last_day)
+# business_days_left = np.busday_count(begindates=today, enddates=last_day)
+# %%
+# read simulator_input.csv
+# simulator
+loc_input = r'C:\Users\KISS Admin\Desktop\stock check practice\simulator_input.csv'
+input=pd.read_csv(loc_input)
+
+inputKDC=input.loc[input.plant%100==0]
+inputLA=input.loc[input.plant%100!=0]
+input_order =input.reset_index()
 # %%
 # Connect to KIRA server
 start = time.time()
@@ -41,94 +66,6 @@ print("Connection Established:")
 
 end = time.time()
 timelist.append([end-start, "Connect to KIRA server"])
-
-
-
-# %%
-targetPlant='simulate_KDC'
-print(f'target plant:{targetPlant}')
-todays = datetime.today()
-# first_days = todays.replace(day=1)
-# last_days = datetime(todays.year, todays.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
-# days_left = last_days - todays
-today = todays.strftime('%Y-%m-%d')
-curYM = todays.strftime('%Y%m')
-# first_day = first_days.strftime('%Y-%m-%d')
-# last_day = last_days.strftime('%Y-%m-%d')
-# business_days = np.busday_count(begindates=first_day, enddates=today) #By today
-# business_days_thismonth = np.busday_count(begindates=first_day, enddates=last_day)
-# business_days_left = np.busday_count(begindates=today, enddates=last_day)
-# %%
-# read simulator_input.csv
-# simulator
-loc_input = r'C:\Users\KISS Admin\Desktop\stock check practice\simulator_input.csv'
-input=pd.read_csv(loc_input)
-
-#
-orderlimit_df = pd.read_sql("""SELECT material, from_date, to_date FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
-orderlimit_df.columns = ['material', 'from_date', 'to_date']
-orderlimit_df['orderlimit'] = 1
-orderlimit_df = orderlimit_df.drop_duplicates(subset='material')
-
-# %% BOM (dimbom_aset)
-bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.bom_aset] GROUP BY bom_parent_material""", con=engine)
-bom_df['bom'] = 1 
-
-# %% dim.mtrl for ms
-mtrl_df = pd.read_sql("""select material, ms from [ivy.mm.dim.mtrl] """, con=engine)
-
-# %% Final_df : master table
-merge4_df = pd.merge(input, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
-merge5_df = pd.merge(merge4_df, mtrl_df, on='material', how='left') #add ms
-merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
-
-# %%
-final_df = merge6_df[['material', 'plant', 'qty','orderlimit', 'bom','ms']]
-final_df.columns = ['material', 'plant', 'qty','orderlimit', 'bom','ms']
-final_df.insert(5,'availability','None')
-final_df.loc[:,['orderlimit','bom']] = final_df[['orderlimit','bom']].fillna(0)
-final_df.loc[:,'orderlimit'] = final_df['orderlimit'].astype('int')
-final_df.loc[:,'bom'] = final_df['bom'].astype('int')
-final_df.loc[:,'plant'] = final_df['plant'].astype('str')
-final_df.reset_index(inplace=True)
-final_df.drop(['index'], axis=1, inplace=True)
-
-# %%
-#Ivy
-
-salesorg= str(input.loc[0,"salesorg"])
-if salesorg == '1300': #For AST orders, we do not check for plant 1000
-    plant_list = ['1100', '1110']
-
-else:
-    plant_list = ['1000', '1100', '1110']
-
-final_df = final_df[final_df['plant'].isin(plant_list)]
-
-if "order_number" in input.columns:
-    order_number=input.loc[0,'order_number']
-    final_df.insert(7,'order_number',order_number)
-print(final_df)
-
-final_df.loc[:,'plant'] = final_df['plant'].astype('int')
-
-input=final_df.copy()
-#
-inputKDC=input.loc[input.plant%100==0]
-inputLA=input.loc[input.plant%100!=0]
-input_order =input.reset_index()
-
-# %%
-# %%
-df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine)
-df_mtrl.head()
-
-df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
-GROUP BY material, act_date
-""", con=engine)
-df_po.head()
-
-
 # %%
 # get the full table for this calcutation.
 
@@ -138,30 +75,29 @@ if(len(inputKDC)>0):
 
     sql_string="""
     DECLARE @mthwitdh AS INT
-    DECLARE @3Mwds AS FLOAT
-
     SELECT @mthwitdh = 7;
 
-    SELECT @3Mwds = (
-            SELECT COUNT(*) AS WDs
-            FROM [ivy.mm.dim.date]
-            WHERE IsKissHoliday != 1 AND thedate BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE())
-            GROUP BY IsKissHoliday
-            );
-
-    WITH pppDailyThisMonth
+    WITH Tdate
+    AS (
+        SELECT COUNT(*) AS WDs
+        FROM [ivy.mm.dim.date]
+        WHERE isweekend != 1 AND thedate BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, 
+                        GETDATE())
+        GROUP BY IsWeekend
+        ), pppDailyThisMonth
     AS (
         SELECT SUM(qty) AS thisMthReOdqty, material, plant
-        FROM [ivy.sd.fact.bill_ppp]
-        WHERE act_date BETWEEN DATEADD(DD, 1, EOMONTH(GETDATE(), - 1)) AND GETDATE() AND ordsqc > 1   
+        FROM ppp_temp
+        WHERE act_date BETWEEN DATEADD(DD, 1, EOMONTH(GETDATE(), - 1)) AND GETDATE() AND ordsqc > 1
         and material in ('change_string')
         GROUP BY material, plant
         ), ppp
-        --avgMreorder within 3month, material, plant FROM [ivy.sd.fact.bill_ppp]
+        --avgMreorder within 3month, material, plant FROM [dbo].[bill_ppp]
     AS (
         SELECT SUM(qty) AS reorder3M, material, plant
-        FROM [ivy.sd.fact.bill_ppp]
-        WHERE act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()) AND ordsqc > 1
+        FROM ppp_temp
+        WHERE act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()) AND ordsqc > 
+            1
         and material in ('change_string')
         GROUP BY material, plant
         ), backOrder
@@ -169,58 +105,63 @@ if(len(inputKDC)>0):
     AS (
         SELECT SUM(bo_qty) AS bo3M, material, plant
         FROM [ivy.sd.fact.bo]
-        WHERE (act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()))
-        and material in ('change_string')
+        WHERE (act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE())
+                )
+        and material in ('change_string')            
         GROUP BY material, plant
         ), pppbo
     AS (
-        SELECT cast(reorder3M AS FLOAT) / @3Mwds AS reorderPerWDs, T1.material, T1.plant, cast(bo3M AS FLOAT) / @3Mwds AS boPerWDs
+        SELECT reorder3M / WDs AS reorderPerWDs, T1.material, T1.plant, bo3M / WDs AS boPerWDs, WDs
         FROM ppp T1
         LEFT JOIN backOrder T2 ON T1.material = T2.material AND T1.plant = T2.plant
+        CROSS JOIN Tdate
             --ORDER BY plant, material
         ), T4fcst
         -- Table to make fcst table. FROM this month to upcoming 5 monthl
     AS (
         SELECT material, SUM(eship) AS eship, FORMAT(act_date, 'MMyyyy') AS MMYYYY, plant
         FROM [ivy.mm.dim.factfcst]
-        WHERE act_date BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh + 1, DATEADD(DD, - DAY(GETDATE()), GETDATE()))
+        WHERE act_date BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh+1, DATEADD(DD, - DAY(GETDATE
+                                ()), GETDATE()))
         and material in ('change_string')                            
         GROUP BY material, FORMAT(act_date, 'MMyyyy'), plant
         ), fcst
     AS (
-        SELECT T1.TheDate, T1.accumWDs, T1.MMYYYY, T1.IsKissHoliday, (1 - T3.IsKissHoliday) * (CONVERT(FLOAT, T2.eship) / T3.workdaysInMonth) AS fcstPerWDs, T2.plant, T2.material
+        SELECT T1.TheDate, T1.WDs, T1.accumWDs, T1.MMYYYY, T1.IsWeekend, (1 - IsWeekend) * (CONVERT(FLOAT, T2.eship) / CONVERT(FLOAT, T1.WDs)
+                ) AS fcstPerWDs, T2.plant, T2.material
         FROM (
-            SELECT TheDate, workdaysInMonth AS WDs, workdaysInMonth - workdaysLeftInMonth AS accumWDs, MMYYYY, IsKissHoliday
+            SELECT TheDate, SUM(1 - IsWeekend) OVER (PARTITION BY MMYYYY) AS WDs, SUM(1 - IsWeekend) 
+                OVER (
+                    PARTITION BY MMYYYY ORDER BY TheDate
+                    ) AS accumWDs, MMYYYY, IsWeekend
             FROM [ivy.mm.dim.date]
-            WHERE thedate BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh + 1, DATEADD(DD, - DAY(GETDATE()), GETDATE()))
+            WHERE thedate BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh+1, DATEADD(DD, - DAY(
+                                    GETDATE()), GETDATE()))
             ) T1
         LEFT JOIN T4fcst T2 ON T1.MMYYYY = T2.MMYYYY
-        LEFT JOIN [ivy.mm.dim.date] T3 on T1.TheDate=T3.TheDate
-        WHERE T1.thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
+        WHERE thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
         ), Tpoasn
     AS (
         SELECT material, plant, act_date, sum(po_qty) AS po_qty, sum(asn_qty) AS asn_qty
         FROM [ivy.mm.dim.fact_poasn]
-        -- WHERE po_num NOT LIKE '43%' -- exclude intra_company po not exclude for individual plant
-        WHERE material in ('change_string')
+        WHERE po_num NOT LIKE '43%' -- exclude intra_company po
+        and material in ('change_string')
         GROUP BY material, plant, act_date
-        ), mrp01
-    AS (
-        SELECT *
-        FROM [ivy.mm.dim.mrp01]
+        ), mrp01 as (
+            SELECT * FROM [ivy.mm.dim.mrp01] 
         WHERE pgr != 'IEC' -- exclude IEC for total stock
         and material in ('change_string')
         ), TOTAL
     AS (
-        SELECT T2.PL_plant, T1.thedate, T3.material, T3.nsp, T1.IsKissHoliday, T6.boPerWDs, T5.po_qty + T5.asn_qty AS poasn_qty, 
-        T6.reorderPerWDs, T8.total_stock - T8.blocked - T8.subcont_qty AS On_hand_qty, T9.fcstPerWDs, 
-        T9.accumWDs, T10.thisMthReOdqty
+        SELECT T2.PL_plant, T1.thedate, T3.material, T3.nsp, T1.IsWeekend, T6.boPerWDs, T5.po_qty + T5.asn_qty AS 
+            poasn_qty, T6.reorderPerWDs, T8.total_stock - T8.blocked - T8.subcont_qty AS On_hand_qty, T9.
+            fcstPerWDs, T9.WDs, T9.accumWDs, T10.thisMthReOdqty
         FROM (
             SELECT DISTINCT PL_PLANT -- pl_plant
             FROM [ivy.mm.dim.mrp01]
             ) T2
         CROSS JOIN (
-            SELECT THEDATE, IsKissHoliday
+            SELECT THEDATE, IsWeekend
             FROM [ivy.mm.dim.date]
             WHERE thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
             ) T1
@@ -235,28 +176,25 @@ if(len(inputKDC)>0):
             AND T2.pl_plant = T6.plant
         LEFT JOIN [ivy.mm.dim.mrp01] T8 ON T3.material = T8.material -- on_hand qty
             AND T2.pl_plant = T8.pl_plant
-        LEFT JOIN fcst T9 ON T3.material = T9.material -- fcstPerWDs, IsKissHoliday
+        LEFT JOIN fcst T9 ON T3.material = T9.material -- fcstPerWDs, isWeekend
             AND T2.pl_plant = T9.plant AND T9.TheDate = T1.TheDate
         LEFT JOIN pppDailyThisMonth T10 ON T10.material = T3.material AND T10.plant = T2.pl_plant
-            -- WHERE T8.pgr != 'IEC' -- exclude IEC for total stock
+        -- WHERE T8.pgr != 'IEC' -- exclude IEC for total stock
             --LEFT JOIN [ivy.sd.fact.order] od ON od.act_date= T1.TheDate and od.material=T3.material
         ), TOTAL2
         -- NULL value to 0 (avgDbo, poasn_qty, avgDreorder, fcstPerWDs,On_hand_qty)
     AS (
-        SELECT pl_plant, TheDate, material, 
-        CASE WHEN nsp IS NULL THEN 0 ELSE nsp END AS nsp, 
-        CASE WHEN (boPerWDs IS NULL) THEN 0 ELSE boPerWDs END AS avgDbo, 
-        CASE WHEN (poasn_qty IS NULL) THEN 0 ELSE poasn_qty END AS poasn_qty, 
-        CASE WHEN (reorderPerWDs IS NULL) THEN 0 ELSE reorderPerWDs END AS avgDreorder, 
-        CASE WHEN (fcstPerWDs IS NULL) THEN 0 ELSE fcstPerWDs END AS fcstPerWDs, 
-        CASE WHEN (On_hand_qty IS NULL) THEN 0 ELSE On_hand_qty END AS On_hand_qty, 
-        CASE WHEN (thisMthReOdqty IS NULL) THEN 0 ELSE thisMthReOdqty END AS thisMthReOdqty, 
-            IsKissHoliday, accumWDs
+        SELECT pl_plant, TheDate, material, CASE WHEN nsp IS NULL THEN 0 ELSE nsp END AS nsp, CASE WHEN (boPerWDs IS NULL
+                        ) THEN 0 ELSE boPerWDs END AS avgDbo, CASE WHEN (poasn_qty IS NULL) THEN 0 
+                ELSE poasn_qty END AS poasn_qty, CASE WHEN (reorderPerWDs IS NULL) THEN 0 ELSE 
+                    reorderPerWDs END AS avgDreorder, CASE WHEN (fcstPerWDs IS NULL) THEN 0 
+                ELSE fcstPerWDs END AS fcstPerWDs, CASE WHEN (On_hand_qty IS NULL) THEN 0 ELSE 
+                    On_hand_qty END AS On_hand_qty, CASE WHEN (thisMthReOdqty IS NULL) THEN 0 
+                ELSE thisMthReOdqty END AS thisMthReOdqty, IsWeekend, WDs, accumWDs
         FROM Total
         )
-    SELECT pl_plant AS plant, TheDate, material AS mtrl, nsp, avgDbo, poasn_qty, avgDreorder, On_hand_qty, 
-        CASE WHEN (fcstPerWDs = 0 AND IsKissHoliday = 0 AND pl_plant IN ('1100', '1400','G140','G110')) THEN 
-                    avgDreorder + avgDbo ELSE fcstPerWDs END AS fcstD, thisMthReOdqty
+    SELECT pl_plant AS plant, TheDate, material AS mtrl, nsp, avgDbo, poasn_qty, avgDreorder, On_hand_qty, CASE WHEN (fcstPerWDs = 0 AND IsWeekend = 0 AND pl_plant IN ('1100', '1400', 'G140')
+                    ) THEN avgDreorder + avgDbo ELSE fcstPerWDs END AS fcstD, thisMthReOdqty
     FROM TOTAL2
     ORDER BY plant, mtrl, TheDate
     """
@@ -296,7 +234,8 @@ if(len(inputKDC)>0):
     # group by mtrl & TheDate
 
     # df_total = df_ft.groupby(["mtrl", "TheDate"]).agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
-    df_total = df_ft[df_ft.plant.isin(['1000','1100','1300','1400','G140','G110','G100','G130'])].groupby(["mtrl", "TheDate"]).agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
+    df_total = df_ft[df_ft.plant.isin(['1000','1100','1300','1400','G140'])].groupby(["mtrl", "TheDate"])
+    df_total = df_total.agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
     # df_total = df_ft.groupby(["mtrl", "TheDate"]).sum()
     df_total = df_total.reset_index()
     df_total = df_total.merge(df_wds, how='left', on='TheDate')
@@ -355,10 +294,9 @@ if(len(inputKDC)>0):
             curResidue = df[index_mtrl*len(df_date)][6]
             # check if there is no poasn for this mtrl
             # poasn_test = df.loc[df["mtrl"] == df.loc[index_mtrl *len(df_date), "mtrl"], "poasn_qty"].sum() == 0
-            df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-
-            poasn_test = df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-            if ((curResidue == 0) & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
+            poasn_test = df[df[:, 0] ==
+                            df[index_mtrl * len(df_date), 0], 4].sum() == 0
+            if (curResidue == 0 & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
                 # df.loc[index_mtrl*len(df_date):(index_mtrl+1) *	len(df_date)-1, "residue"] = 0
                 df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 9] = 0
                 # df.loc[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date)-1, "BOseq"] = -1
@@ -452,16 +390,6 @@ if(len(inputKDC)>0):
     timelist.append([end-start, "caluculate Daily and to_csv result"])
 
     # %%
-    df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine)
-    df_mtrl.head()
-
-    df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
-    WHERE plant in ('1100','1400','G110','G140','1000','G100')
-    GROUP BY material, act_date
-    """, con=engine)
-    df_po.head()
-
-    # %%
     # group by mtrl and BOseq to show summary data of BOdates and BOqty,BO$
     # plot the BOdates, save the summary csv and png file
     start = time.time()
@@ -490,48 +418,15 @@ if(len(inputKDC)>0):
     df_result1 = df_result1[df_result.BOseq != 0].copy()
     result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
 
-    # add ms , pdt to df_result1 from df_mtrl
-    df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
-    df_result1.drop("material", axis=1, inplace=True)
-
-    df_result1['pdt']=df_result1.apply(lambda row: 90 if \
-        (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
-
-    df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
-        + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
-
-    row= df_result1.loc[1] # for degub  
-
-    df_result1["po_date"]=''
-    df_result1["poasn_qty"]=''
-
-    # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
-    for index,row in df_result1.iterrows():
-        po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
-        po_next_bo =po_next_bo.reset_index().drop("index",axis=1)
-        if( len(po_next_bo) >0):
-            df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
-            df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
-
-
-    # if bo bf po no -> days bf po :0
-    # yes -> days bf po : if seq ==-1 -> 
-
-    df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
-    max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
-                row['#ofBOdays']),
-    0), axis=1)    
-
-    df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
-
-    df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
     df_result1['loc']='simulation'
-    df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
+    df_result1.to_csv(result_loc, index=False)
+    
     end = time.time()
     timelist.append([end-start, "caluculate BO.csv"])
 
     # %%
     start = time.time()
+
 
     def find1(df):
         for i in range(len(df)):
@@ -568,11 +463,11 @@ if(len(inputKDC)>0):
             id = df_sumBOseq[index][3]-df_sumBOseq[index][4]+1
             # df_sumBOseq[index][5] = df_result.loc[id,"StartDate"].values[0]
             df_sumBOseq[index][5] = df_result.loc[id,"StartDate"]
-            df_sumBOseq[index][6] = 'Y'
+            df_sumBOseq[index][6] = 'x'
         # elif row.BOseq< 0:
         elif df_sumBOseq[index][1] < 0:
             df_sumBOseq[index][5] = today 
-            df_sumBOseq[index][6] = 'Y'
+            df_sumBOseq[index][6] = 'x'
         # elif row.BOseq == 0:
         elif df_sumBOseq[index][1] == 0:
             # lastday = df_total.loc[df_total.mtrl == df_sumBOseq[index][0]].iloc[-1]
@@ -582,23 +477,16 @@ if(len(inputKDC)>0):
             if sum(df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']) == 0:
                 # inventory>0 but no fcst
                 df_sumBOseq[index][5] = '2100-01-01'
-                df_sumBOseq[index][6] = 'N'
+                df_sumBOseq[index][6] = 'o'
             else:
                 if lastday.fcstD == 0:
                     fcsts=df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']
                     # fcst = np.average(df_total.loc[(df_total.mtrl == df_sumBOseq[index][0]) & (df_total.fcstD > 0), "fcstD"].values)
-                    if sum(fcsts>0)== 0:
-                        fcst=0
-                        deltaD=1000
                     fcst = np.average(fcsts[fcsts>0])
                 else:  # it means lastday.fcstD>0
                     fcst = lastday.fcstD
                 deltaD = lastday.residue/fcst
                 if deltaD>1000:
-                    deltaD=1000
-                elif pd.isnull(deltaD):
-                    print(lastday)
-                    print(fcst)
                     deltaD=1000
                 bo = datetime.strptime(
                     lastday.TheDate, '%Y-%m-%d')+timedelta(days=deltaD)
@@ -615,10 +503,7 @@ if(len(inputKDC)>0):
     # %%
     BOdateloc = file_loc+"\\"+today+"_"+targetPlant+"_BOdate.csv"
     df_sumBOseq['loc']='simulation'
-    df_sumBOseq['days_from_today']=(pd.to_datetime(df_sumBOseq['StartDate']) - datetime.now()).dt.days+1
-    df_sumBOseq["DM"]=df_sumBOseq['days_from_today']/365.25*12
-
-    df_sumBOseq[["mtrl", "StartDate",'DM', 'loc']].to_csv(BOdateloc, index=False)
+    df_sumBOseq[["mtrl", "StartDate", 'ox','loc']].to_csv(BOdateloc, index=False)
     # %%
     # simulator
     df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material'])
@@ -635,7 +520,7 @@ if(len(inputKDC)>0):
             df_simulation.loc[index,"availability"]="check"
             df_simulation.loc[index,"eta"]         ='orderlimit'        
         elif(row.ox=="o"):
-                df_simulation.loc[index,"availability"]="OK"
+             df_simulation.loc[index,"availability"]="OK"
         else:
             if sum(df_result1.loc[df_result1["mtrl"]==row.material,"#ofBOdays"])<7:
                 df_simulation.loc[index,"availability"]="YES"
@@ -655,14 +540,47 @@ if(len(inputKDC)>0):
     df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
     # save simulator for KDC
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_KDCsimulation.csv"
-    df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_KDC=df_simulation.copy()
     df_simulation.to_csv(simul_loc,index=False)
 
     df_result1_KDC=df_result1.copy()
     # end simulator
 
-    # %%
+    # sql_string="""
+    # CREATE TABLE #temp_mtrl (
+    # material VARCHAR(50),
+    # );
+
+    # INSERT INTO #temp_mtrl (material)
+    # VALUES 'change_string';
+
+    # SELECT T1.material, pdt FROM #temp_mtrl T1
+    # INNER JOIN [ivy.mm.dim.mtrl] T2 on T1.material= T2.material
+    # """
+
+    # replace_material='(\''+'\'),(\''.join(map(str,list(inputKDC.material)))+'\')'
+    # sql_string=sql_string.replace("'change_string'",replace_material)
+
+    # sql_string1="""
+    # CREATE TABLE #temp_mtrl (
+    # material VARCHAR(50),
+    # );
+
+    # INSERT INTO #temp_mtrl (material)
+    # VALUES ('KPEG06');
+
+    # SELECT T1.material, pdt FROM #temp_mtrl T1
+    # INNER JOIN [ivy.mm.dim.mtrl] T2 on T1.material= T2.material
+    # """    
+
+    # df_pdt = pd.read_sql(sql_string1, con=engine)
+    # df_pdt = pd.read_sql(sql_string, con=engine)
+
+    # string2="""drop table #temp_mtrl;"""
+    # with engine.connect() as con:    
+    #     con.execute(string2)
+
+# %%
 
 
     total_loc = file_loc+"\\"+today+"_"+targetPlant+"_ESA.csv"
@@ -674,9 +592,6 @@ if(len(inputKDC)>0):
     end = time.time()
     timelist.append([end-start, "caluculate BOdate.csv"])
 
-# end NY
-
-
 # %%
 targetPlant='simulate_LA'
 
@@ -685,125 +600,126 @@ if(len(inputLA)>0):
 
     sql_string="""
     DECLARE @mthwitdh AS INT
-    DECLARE @3Mwds AS FLOAT
-
     SELECT @mthwitdh = 7;
 
-    SELECT @3Mwds = (
+    WITH Tdate
+    AS (
         SELECT COUNT(*) AS WDs
         FROM [ivy.mm.dim.date]
-        WHERE IsKissHoliday != 1 AND thedate BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE())
-        GROUP BY IsKissHoliday
-        );
-
-    WITH pppDailyThisMonth
+        WHERE isweekend != 1 AND thedate BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, 
+                        GETDATE())
+        GROUP BY IsWeekend
+        ), pppDailyThisMonth
     AS (
-    SELECT SUM(qty) AS thisMthReOdqty, material, plant
-    FROM [ivy.sd.fact.bill_ppp]
-    WHERE act_date BETWEEN DATEADD(DD, 1, EOMONTH(GETDATE(), - 1)) AND GETDATE() AND ordsqc > 1   
-    and material in ('change_string')
-    GROUP BY material, plant
-    ), ppp
-    --avgMreorder within 3month, material, plant FROM [ivy.sd.fact.bill_ppp]
+        SELECT SUM(qty) AS thisMthReOdqty, material, plant
+        FROM ppp_temp
+        WHERE act_date BETWEEN DATEADD(DD, 1, EOMONTH(GETDATE(), - 1)) AND GETDATE() AND ordsqc > 1
+        and material in ('change_string')
+        GROUP BY material, plant
+        ), ppp
+        --avgMreorder within 3month, material, plant FROM [dbo].[bill_ppp]
     AS (
-    SELECT SUM(qty) AS reorder3M, material, plant
-    FROM [ivy.sd.fact.bill_ppp]
-    WHERE act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()) AND ordsqc > 1
-    and material in ('change_string')
-    GROUP BY material, plant
-    ), backOrder
-    -- avgMbo within 3month, material, plant FROM [ivy.sd.fact.bo] 
+        SELECT SUM(qty) AS reorder3M, material, plant
+        FROM ppp_temp
+        WHERE act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()) AND ordsqc > 
+            1
+        and material in ('change_string')
+        GROUP BY material, plant
+        ), backOrder
+        -- avgMbo within 3month, material, plant FROM [ivy.sd.fact.bo] 
     AS (
-    SELECT SUM(bo_qty) AS bo3M, material, plant
-    FROM [ivy.sd.fact.bo]
-    WHERE (act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE()))
-    and material in ('change_string')
-    GROUP BY material, plant
-    ), pppbo
+        SELECT SUM(bo_qty) AS bo3M, material, plant
+        FROM [ivy.sd.fact.bo]
+        WHERE (act_date BETWEEN DATEADD(MM, - 3, DATEADD(DD, - 1, GETDATE())) AND DATEADD(DD, - 1, GETDATE())
+                )
+        and material in ('change_string')            
+        GROUP BY material, plant
+        ), pppbo
     AS (
-    SELECT cast(reorder3M AS FLOAT) / @3Mwds AS reorderPerWDs, T1.material, T1.plant, cast(bo3M AS FLOAT) / @3Mwds AS boPerWDs
-    FROM ppp T1
-    LEFT JOIN backOrder T2 ON T1.material = T2.material AND T1.plant = T2.plant
-        --ORDER BY plant, material
-    ), T4fcst
-    -- Table to make fcst table. FROM this month to upcoming 5 monthl
+        SELECT reorder3M / WDs AS reorderPerWDs, T1.material, T1.plant, bo3M / WDs AS boPerWDs, WDs
+        FROM ppp T1
+        LEFT JOIN backOrder T2 ON T1.material = T2.material AND T1.plant = T2.plant
+        CROSS JOIN Tdate
+            --ORDER BY plant, material
+        ), T4fcst
+        -- Table to make fcst table. FROM this month to upcoming 5 monthl
     AS (
-    SELECT material, SUM(eship) AS eship, FORMAT(act_date, 'MMyyyy') AS MMYYYY, plant
-    FROM [ivy.mm.dim.factfcst]
-    WHERE act_date BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh + 1, DATEADD(DD, - DAY(GETDATE()), GETDATE()))
-    and material in ('change_string')                            
-    GROUP BY material, FORMAT(act_date, 'MMyyyy'), plant
-    ), fcst
+        SELECT material, SUM(eship) AS eship, FORMAT(act_date, 'MMyyyy') AS MMYYYY, plant
+        FROM [ivy.mm.dim.factfcst]
+        WHERE act_date BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh+1, DATEADD(DD, - DAY(GETDATE
+                                ()), GETDATE()))
+        and material in ('change_string')                            
+        GROUP BY material, FORMAT(act_date, 'MMyyyy'), plant
+        ), fcst
     AS (
-    SELECT T1.TheDate, T1.accumWDs, T1.MMYYYY, T1.IsKissHoliday, (1 - T3.IsKissHoliday) * (CONVERT(FLOAT, T2.eship) / T3.workdaysInMonth) AS fcstPerWDs, T2.plant, T2.material
-    FROM (
-        SELECT TheDate, workdaysInMonth AS WDs, workdaysInMonth - workdaysLeftInMonth AS accumWDs, MMYYYY, IsKissHoliday
-        FROM [ivy.mm.dim.date]
-        WHERE thedate BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh + 1, DATEADD(DD, - DAY(GETDATE()), GETDATE()))
-        ) T1
-    LEFT JOIN T4fcst T2 ON T1.MMYYYY = T2.MMYYYY
-    LEFT JOIN [ivy.mm.dim.date] T3 on T1.TheDate=T3.TheDate
-    WHERE T1.thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
-    ), Tpoasn
-    AS (
-    SELECT material, plant, act_date, sum(po_qty) AS po_qty, sum(asn_qty) AS asn_qty
-    FROM [ivy.mm.dim.fact_poasn]
-    -- WHERE po_num NOT LIKE '43%' -- exclude intra_company po not exclude for individual plant
-    and material in ('change_string')
-    GROUP BY material, plant, act_date
-    ), mrp01
-    AS (
-    SELECT *
-    FROM [ivy.mm.dim.mrp01]
-    WHERE pgr != 'IEC' -- exclude IEC for total stock
-    and material in ('change_string')
-    ), TOTAL
-    AS (
-    SELECT T2.PL_plant, T1.thedate, T3.material, T3.nsp, T1.IsKissHoliday, T6.boPerWDs, T5.po_qty + T5.asn_qty AS poasn_qty, 
-    T6.reorderPerWDs, T8.total_stock - T8.blocked - T8.subcont_qty AS On_hand_qty, T9.fcstPerWDs, 
-    T9.accumWDs, T10.thisMthReOdqty
-    FROM (
-        SELECT DISTINCT PL_PLANT -- pl_plant
-        FROM [ivy.mm.dim.mrp01]
-        ) T2
-    CROSS JOIN (
-        SELECT THEDATE, IsKissHoliday
-        FROM [ivy.mm.dim.date]
+        SELECT T1.TheDate, T1.WDs, T1.accumWDs, T1.MMYYYY, T1.IsWeekend, (1 - IsWeekend) * (CONVERT(FLOAT, T2.eship) / CONVERT(FLOAT, T1.WDs)
+                ) AS fcstPerWDs, T2.plant, T2.material
+        FROM (
+            SELECT TheDate, SUM(1 - IsWeekend) OVER (PARTITION BY MMYYYY) AS WDs, SUM(1 - IsWeekend) 
+                OVER (
+                    PARTITION BY MMYYYY ORDER BY TheDate
+                    ) AS accumWDs, MMYYYY, IsWeekend
+            FROM [ivy.mm.dim.date]
+            WHERE thedate BETWEEN DATEADD(DD, - DAY(GETDATE()), GETDATE()) AND DATEADD(MM, @mthwitdh+1, DATEADD(DD, - DAY(
+                                    GETDATE()), GETDATE()))
+            ) T1
+        LEFT JOIN T4fcst T2 ON T1.MMYYYY = T2.MMYYYY
         WHERE thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
-        ) T1
-    CROSS JOIN (
-        SELECT MATERIAL, nsp --material
-        FROM [ivy.mm.dim.mtrl]
-        WHERE material in ('change_string')
-        ) T3
-    LEFT JOIN Tpoasn T5 ON T3.material = T5.material -- poasn_qty
-        AND T2.pl_plant = T5.plant AND T1.TheDate = T5.act_date
-    LEFT JOIN pppbo T6 ON T3.material = T6.material -- average Monthly reorder qty
-        AND T2.pl_plant = T6.plant
-    LEFT JOIN [ivy.mm.dim.mrp01] T8 ON T3.material = T8.material -- on_hand qty
-        AND T2.pl_plant = T8.pl_plant
-    LEFT JOIN fcst T9 ON T3.material = T9.material -- fcstPerWDs, IsKissHoliday
-        AND T2.pl_plant = T9.plant AND T9.TheDate = T1.TheDate
-    LEFT JOIN pppDailyThisMonth T10 ON T10.material = T3.material AND T10.plant = T2.pl_plant
-        -- WHERE T8.pgr != 'IEC' -- exclude IEC for total stock
-        --LEFT JOIN [ivy.sd.fact.order] od ON od.act_date= T1.TheDate and od.material=T3.material
-    ), TOTAL2
-    -- NULL value to 0 (avgDbo, poasn_qty, avgDreorder, fcstPerWDs,On_hand_qty)
+        ), Tpoasn
     AS (
-    SELECT pl_plant, TheDate, material, 
-    CASE WHEN nsp IS NULL THEN 0 ELSE nsp END AS nsp, 
-    CASE WHEN (boPerWDs IS NULL) THEN 0 ELSE boPerWDs END AS avgDbo, 
-    CASE WHEN (poasn_qty IS NULL) THEN 0 ELSE poasn_qty END AS poasn_qty, 
-    CASE WHEN (reorderPerWDs IS NULL) THEN 0 ELSE reorderPerWDs END AS avgDreorder, 
-    CASE WHEN (fcstPerWDs IS NULL) THEN 0 ELSE fcstPerWDs END AS fcstPerWDs, 
-    CASE WHEN (On_hand_qty IS NULL) THEN 0 ELSE On_hand_qty END AS On_hand_qty, 
-    CASE WHEN (thisMthReOdqty IS NULL) THEN 0 ELSE thisMthReOdqty END AS thisMthReOdqty, 
-        IsKissHoliday, accumWDs
-    FROM Total
-    )
-    SELECT pl_plant AS plant, TheDate, material AS mtrl, nsp, avgDbo, poasn_qty, avgDreorder, On_hand_qty, 
-    CASE WHEN (fcstPerWDs = 0 AND IsKissHoliday = 0 AND pl_plant IN ('1100', '1400','G140','G110')) THEN 
-                avgDreorder + avgDbo ELSE fcstPerWDs END AS fcstD, thisMthReOdqty
+        SELECT material, plant, act_date, sum(po_qty) AS po_qty, sum(asn_qty) AS asn_qty
+        FROM [ivy.mm.dim.fact_poasn]
+        WHERE po_num NOT LIKE '43%' -- exclude intra_company po
+        and material in ('change_string')
+        GROUP BY material, plant, act_date
+        ), mrp01 as (
+            SELECT * FROM [ivy.mm.dim.mrp01] 
+        WHERE pgr != 'IEC' -- exclude IEC for total stock
+        and material in ('change_string')
+        ), TOTAL
+    AS (
+        SELECT T2.PL_plant, T1.thedate, T3.material, T3.nsp, T1.IsWeekend, T6.boPerWDs, T5.po_qty + T5.asn_qty AS 
+            poasn_qty, T6.reorderPerWDs, T8.total_stock - T8.blocked - T8.subcont_qty AS On_hand_qty, T9.
+            fcstPerWDs, T9.WDs, T9.accumWDs, T10.thisMthReOdqty
+        FROM (
+            SELECT DISTINCT PL_PLANT -- pl_plant
+            FROM [ivy.mm.dim.mrp01]
+            ) T2
+        CROSS JOIN (
+            SELECT THEDATE, IsWeekend
+            FROM [ivy.mm.dim.date]
+            WHERE thedate BETWEEN DATEADD(DAY, - 6, GETDATE()) AND DATEADD(MONTH, @mthwitdh, GETDATE())
+            ) T1
+        CROSS JOIN (
+            SELECT MATERIAL, nsp --material
+            FROM [ivy.mm.dim.mtrl]
+            WHERE material in ('change_string')
+            ) T3
+        LEFT JOIN Tpoasn T5 ON T3.material = T5.material -- poasn_qty
+            AND T2.pl_plant = T5.plant AND T1.TheDate = T5.act_date
+        LEFT JOIN pppbo T6 ON T3.material = T6.material -- average Monthly reorder qty
+            AND T2.pl_plant = T6.plant
+        LEFT JOIN [ivy.mm.dim.mrp01] T8 ON T3.material = T8.material -- on_hand qty
+            AND T2.pl_plant = T8.pl_plant
+        LEFT JOIN fcst T9 ON T3.material = T9.material -- fcstPerWDs, isWeekend
+            AND T2.pl_plant = T9.plant AND T9.TheDate = T1.TheDate
+        LEFT JOIN pppDailyThisMonth T10 ON T10.material = T3.material AND T10.plant = T2.pl_plant
+        -- WHERE T8.pgr != 'IEC' -- exclude IEC for total stock
+            --LEFT JOIN [ivy.sd.fact.order] od ON od.act_date= T1.TheDate and od.material=T3.material
+        ), TOTAL2
+        -- NULL value to 0 (avgDbo, poasn_qty, avgDreorder, fcstPerWDs,On_hand_qty)
+    AS (
+        SELECT pl_plant, TheDate, material, CASE WHEN nsp IS NULL THEN 0 ELSE nsp END AS nsp, CASE WHEN (boPerWDs IS NULL
+                        ) THEN 0 ELSE boPerWDs END AS avgDbo, CASE WHEN (poasn_qty IS NULL) THEN 0 
+                ELSE poasn_qty END AS poasn_qty, CASE WHEN (reorderPerWDs IS NULL) THEN 0 ELSE 
+                    reorderPerWDs END AS avgDreorder, CASE WHEN (fcstPerWDs IS NULL) THEN 0 
+                ELSE fcstPerWDs END AS fcstPerWDs, CASE WHEN (On_hand_qty IS NULL) THEN 0 ELSE 
+                    On_hand_qty END AS On_hand_qty, CASE WHEN (thisMthReOdqty IS NULL) THEN 0 
+                ELSE thisMthReOdqty END AS thisMthReOdqty, IsWeekend, WDs, accumWDs
+        FROM Total
+        )
+    SELECT pl_plant AS plant, TheDate, material AS mtrl, nsp, avgDbo, poasn_qty, avgDreorder, On_hand_qty, CASE WHEN (fcstPerWDs = 0 AND IsWeekend = 0 AND pl_plant IN (1100, 1400)
+                    ) THEN avgDreorder + avgDbo ELSE fcstPerWDs END AS fcstD, thisMthReOdqty
     FROM TOTAL2
     ORDER BY plant, mtrl, TheDate
     """
@@ -845,7 +761,8 @@ if(len(inputLA)>0):
 
     # df_total = df_ft.groupby(["mtrl", "TheDate"]).agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
     # df_total = df_ft[df_ft.plant.isin(['1000','1100','1300','1400'])].groupby(["mtrl", "TheDate"])
-    df_total = df_ft[df_ft.plant.isin(['1110','1410'])].groupby(["mtrl", "TheDate"]).agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
+    df_total = df_ft[df_ft.plant.isin(['1110','1410'])]
+    df_total = df_total.agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
     # df_total = df_ft.groupby(["mtrl", "TheDate"]).sum()
     df_total = df_total.reset_index()
     df_total = df_total.merge(df_wds, how='left', on='TheDate')
@@ -865,7 +782,7 @@ if(len(inputLA)>0):
     # %%
     # define DailyCalculate
 if(len(inputLA)>0):
-
+    
     start = time.time()
 
     def DailyCalculate(df):
@@ -906,10 +823,9 @@ if(len(inputLA)>0):
             curResidue = df[index_mtrl*len(df_date)][6]
             # check if there is no poasn for this mtrl
             # poasn_test = df.loc[df["mtrl"] == df.loc[index_mtrl *len(df_date), "mtrl"], "poasn_qty"].sum() == 0
-            df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-
-            poasn_test = df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-            if ((curResidue == 0) & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
+            poasn_test = df[df[:, 0] ==
+                            df[index_mtrl * len(df_date), 0], 4].sum() == 0
+            if (curResidue == 0 & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
                 # df.loc[index_mtrl*len(df_date):(index_mtrl+1) *	len(df_date)-1, "residue"] = 0
                 df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 9] = 0
                 # df.loc[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date)-1, "BOseq"] = -1
@@ -997,20 +913,10 @@ if(len(inputLA)>0):
 
     df_total['loc']='simulation'
     df_total.to_csv(total_loc, index=False)
-    print('exporting TotalESA.csv was done')
+    print('exporting ESA.csv was done')
 
     end = time.time()
     timelist.append([end-start, "caluculate Daily and to_csv result"])
-
-    # %%
-    df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine)
-    df_mtrl.head()
-
-    df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
-    WHERE plant in ('1100','1400','G110','G140','1000','G100')
-    GROUP BY material, act_date
-    """, con=engine)
-    df_po.head()
 
     # %%
     # group by mtrl and BOseq to show summary data of BOdates and BOqty,BO$
@@ -1041,43 +947,8 @@ if(len(inputLA)>0):
     df_result1 = df_result1[df_result.BOseq != 0].copy()
     result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
 
-    # add ms , pdt to df_result1 from df_mtrl
-    df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
-    df_result1.drop("material", axis=1, inplace=True)
-
-    df_result1['pdt']=df_result1.apply(lambda row: 90 if \
-        (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
-
-    df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
-        + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
-
-    row= df_result1.loc[1] # for degub  
-
-    df_result1["po_date"]=''
-    df_result1["poasn_qty"]=''
-
-    # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
-    for index,row in df_result1.iterrows():
-        po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
-        po_next_bo =po_next_bo.reset_index().drop("index",axis=1)
-        if( len(po_next_bo) >0):
-            df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
-            df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
-
-
-    # if bo bf po no -> days bf po :0
-    # yes -> days bf po : if seq ==-1 -> 
-
-    df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
-    max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
-                row['#ofBOdays']),
-    0), axis=1)    
-
-    df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
-
-    df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
     df_result1['loc']='simulation'
-    df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
+    df_result1.to_csv(result_loc, index=False)
     end = time.time()
     timelist.append([end-start, "caluculate BO.csv"])
 
@@ -1119,11 +990,11 @@ if(len(inputLA)>0):
             id = df_sumBOseq[index][3]-df_sumBOseq[index][4]+1
             # df_sumBOseq[index][5] = df_result.loc[id,"StartDate"].values[0]
             df_sumBOseq[index][5] = df_result.loc[id,"StartDate"]
-            df_sumBOseq[index][6] = 'Y'
+            df_sumBOseq[index][6] = 'x'
         # elif row.BOseq< 0:
         elif df_sumBOseq[index][1] < 0:
             df_sumBOseq[index][5] = today 
-            df_sumBOseq[index][6] = 'Y'
+            df_sumBOseq[index][6] = 'x'
         # elif row.BOseq == 0:
         elif df_sumBOseq[index][1] == 0:
             # lastday = df_total.loc[df_total.mtrl == df_sumBOseq[index][0]].iloc[-1]
@@ -1133,29 +1004,22 @@ if(len(inputLA)>0):
             if sum(df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']) == 0:
                 # inventory>0 but no fcst
                 df_sumBOseq[index][5] = '2100-01-01'
-                df_sumBOseq[index][6] = 'N'
+                df_sumBOseq[index][6] = 'o'
             else:
                 if lastday.fcstD == 0:
                     fcsts=df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']
                     # fcst = np.average(df_total.loc[(df_total.mtrl == df_sumBOseq[index][0]) & (df_total.fcstD > 0), "fcstD"].values)
-                    if sum(fcsts>0)== 0:
-                        fcst=0
-                        deltaD=1000
                     fcst = np.average(fcsts[fcsts>0])
                 else:  # it means lastday.fcstD>0
                     fcst = lastday.fcstD
                 deltaD = lastday.residue/fcst
                 if deltaD>1000:
                     deltaD=1000
-                elif pd.isnull(deltaD):
-                    print(lastday)
-                    print(fcst)
-                    deltaD=1000
                 bo = datetime.strptime(
                     lastday.TheDate, '%Y-%m-%d')+timedelta(days=deltaD)
                 df_sumBOseq[index][5] = datetime.strftime(
                     bo, '%Y-%m-%d')
-                df_sumBOseq[index][6] = 'N'
+                df_sumBOseq[index][6] = 'o'
         else:
             print(df_sumBOseq[index])
             print("debug needed")
@@ -1166,9 +1030,7 @@ if(len(inputLA)>0):
     # %%
     BOdateloc = file_loc+"\\"+today+"_"+targetPlant+"_BOdate.csv"
     df_sumBOseq['loc']='simulation'
-    df_sumBOseq['days_from_today']=(pd.to_datetime(df_sumBOseq['StartDate']) - datetime.now()).dt.days+1
-    df_sumBOseq["DM"]=df_sumBOseq['days_from_today']/365.25*12
-    df_sumBOseq[["mtrl", "StartDate",'DM', 'loc']].to_csv(BOdateloc, index=False)
+    df_sumBOseq[["mtrl", "StartDate", 'ox','loc']].to_csv(BOdateloc, index=False)
 
     # simulator
     df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material'])
@@ -1202,7 +1064,6 @@ if(len(inputLA)>0):
         if((row.ms==91) or (row.ms==41)):
             df_simulation.loc[index,"eta"]         ='ms'+str(row.ms)
     df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
-    df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_LA=df_simulation.copy()
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_simulation.csv"
     df_simulation.to_csv(simul_loc,index=False)
@@ -1219,26 +1080,19 @@ if(len(inputLA)>0):
     end = time.time()
     timelist.append([end-start, "caluculate BOdate.csv"])
 
-# %% LA end
-print('LA end')
 # %% 
 replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
 sql_string="""SELECT material, pdt FROM [ivy.mm.dim.mtrl] WHERE material in ('change_string')
 """
 
 sql_string1=sql_string.replace("'change_string'",replace_material)
+
 df_pdt = pd.read_sql(sql_string1, con=engine)
-
-replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
-sql_string="""SELECT material, pl_plant as plant, total_stock FROM [ivy.mm.dim.mrp01] WHERE material in ('change_string')
-"""
-
-sql_string1=sql_string.replace("'change_string'",replace_material)
-df_mrp01 = pd.read_sql(sql_string1, con=engine)
 
 end = time.time()
 timelist.append([end-start, "Get pdt"])
 # %%
+
 
 if "order_number" in input.columns:
     # stockcheck
@@ -1247,9 +1101,8 @@ if "order_number" in input.columns:
     simul_loc1 = resultLoc+"\\"+str(input.loc[0,"order_number"])+"_bo.csv"
 else:
     # simulation
-    resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
-    simul_loc = resultLoc+"\\"+today+"_simulation_total.xlsx"
-    simul_loc1 = resultLoc+"\\"+today+"_simulation_bo.csv"
+    simul_loc = file_loc+"\\"+today+"_simulation_total.excel"
+    simul_loc = file_loc+"\\"+today+"_simulation_bo.csv"
 
 if len(inputLA)==0:
     df_result=df_simulation_KDC
@@ -1280,63 +1133,55 @@ df_result1["BOdays/BOqty"]=df_result1["#ofBOdays"]/df_result1["BOqty"]
 df_result1.to_csv(simul_loc1,index=False)
 
 # %%
-wb = load_workbook(simul_loc) #Change Location - (type 2)
-ws = wb.active
-max_row = ws.max_row
-max_column = ws.max_column
-
-# conditional formatting : availablity
-green_format = PatternFill(fgColor = '00CCFFCC', fill_type='solid')
-red_format = PatternFill(fgColor = '00FF8080', fill_type='solid')
-for k in range(1,max_row+1):
-    result_value = str(ws.cell(row=k, column=4).value)
-    if result_value == "NO":
-        ws.cell(row=k, column=4).fill = red_format
-        ws.cell(row=k, column=4).font = Font(color = '00800000')
-    elif result_value == "OK":
-        ws.cell(row=k, column=4).fill = green_format
-        ws.cell(row=k, column=4).font = Font(color = '00008000')
-    elif result_value == "YES":
-        ws.cell(row=k, column=4).fill = green_format
-        ws.cell(row=k, column=4).font = Font(color = '00008000')
-    else:
-        ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
-for k in range(1,max_row+1): # 1000, 1110
-    result_value = str(ws.cell(row=k, column=2).value)
-    if result_value == 1000:
-        ws.cell(row=k, column=2).fill = red_format
-        ws.cell(row=k, column=2).font = Font(color = '00800000')
-    elif result_value == 1110:
-        ws.cell(row=k, column=2).fill = green_format
-        ws.cell(row=k, column=2).font = Font(color = '00008000')
-    else:
-        ws.cell(row=k, column=2).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
-for k in range(1,max_row+1): # NO and yes
-    result_value = str(ws.cell(row=k, column=4).value)
-    result_value2 = str(ws.cell(row=k, column=7).value)
-    if result_value == 'NO' and result_value2=='yes':
-        ws.cell(row=k, column=7).fill = red_format
-        ws.cell(row=k, column=7).font = Font(color = '00800000')
-
-for column_cells in ws.columns:
-    new_column_length = max(len(str(cell.value)) for cell in column_cells)
-    new_column_letter = (get_column_letter(column_cells[0].column))
-    if new_column_length > 0:
-        ws.column_dimensions[new_column_letter].width = new_column_length*1.3
-
-# Border
-
-# for r in range(1,max_row+1):
-#     for c in range(1,max_column+1):
-#         ws.cell(row=r, column=c).border = Border(top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000'), left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'))
 if "order_number" in input.columns:
-    simul_loc = resultLoc+"\\"+"SC"+str(input.loc[0,"order_number"])+"_ivy.xlsx"
-else:
-    simul_loc = simul_loc
-wb.save(simul_loc) #Change Location - (type 2)
-wb.close()
+    wb = load_workbook(simul_loc) #Change Location - (type 2)
+    ws = wb.active
+    max_row = ws.max_row
+    max_column = ws.max_column
 
-print('Stock check completed!')
+    # conditional formatting : availablity
+    green_format = PatternFill(fgColor = '00CCFFCC', fill_type='solid')
+    red_format = PatternFill(fgColor = '00FF8080', fill_type='solid')
+    for k in range(1,max_row+1):
+        result_value = str(ws.cell(row=k, column=4).value)
+        if result_value == "NO":
+            ws.cell(row=k, column=4).fill = red_format
+            ws.cell(row=k, column=4).font = Font(color = '00800000')
+        elif result_value == "OK":
+            ws.cell(row=k, column=4).fill = green_format
+            ws.cell(row=k, column=4).font = Font(color = '00008000')
+        elif result_value == "YES":
+            ws.cell(row=k, column=4).fill = green_format
+            ws.cell(row=k, column=4).font = Font(color = '00008000')
+        else:
+            ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
+    for k in range(1,max_row+1):
+        result_value = str(ws.cell(row=k, column=2).value)
+        if result_value == 1000:
+            ws.cell(row=k, column=2).fill = red_format
+            ws.cell(row=k, column=2).font = Font(color = '00800000')
+        elif result_value == 1110:
+            ws.cell(row=k, column=2).fill = green_format
+            ws.cell(row=k, column=2).font = Font(color = '00008000')
+        else:
+            ws.cell(row=k, column=2).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
+    
+    for column_cells in ws.columns:
+        new_column_length = max(len(str(cell.value)) for cell in column_cells)
+        new_column_letter = (get_column_letter(column_cells[0].column))
+        if new_column_length > 0:
+            ws.column_dimensions[new_column_letter].width = new_column_length*1.23
+
+    # Border
+
+    # for r in range(1,max_row+1):
+    #     for c in range(1,max_column+1):
+    #         ws.cell(row=r, column=c).border = Border(top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000'), left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'))
+    simul_loc = resultLoc+"\\"+"SC"+str(input.loc[0,"order_number"])+"_ivy.xlsx"
+    wb.save(simul_loc) #Change Location - (type 2)
+    wb.close()
+
+    print('Stock check completed!')
 
 # %%
 df_time = pd.DataFrame(timelist)

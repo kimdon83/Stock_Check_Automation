@@ -222,53 +222,64 @@ if len(order_df) > 0:
     # print(order_number)
 
     old_name=r"C:\Users\KISS Admin\Documents\SAP\SAP GUI\export.XLSX"
+    # old_name=r"C:\Users\KISS Admin\Downloads\input.XLSX"
+    # new_name=r"C:\Users\KISS Admin\Desktop\IVYENT_DH\7. stock check"+"\\"+order_number+"_input.XLSX"
+    # new_name=r"C:\Users\KISS Admin\Desktop\stock check practice\input.XLSX"
+    # os.rename(old_name,new_name)
 
     input_df = pd.read_excel(old_name, sheet_name='Sheet1') #Change Location - (type 1)
     input_df = input_df[['Material', 'Order Quantity', 'Plant']]
     input_df.columns = ['material', 'qty', 'plant']
     input_df['plant'] = input_df['plant'].astype(str)
     input_df['material'] = input_df['material'].astype(str)
-    input_df.insert(3,"order_number",order_number)
-    input_df.insert(4,"salesorg",salesorg)
 
     # %% Listup : Order limit & BO products
-    # orderlimit_df = pd.read_sql("""SELECT material, from_date, to_date FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
-    # orderlimit_df.columns = ['material', 'from_date', 'to_date']
-    # orderlimit_df['orderlimit'] = 1
-    # orderlimit_df = orderlimit_df.drop_duplicates(subset='material')
+    # # orderlimit_df : Order limit list
+    # orderlimit_df = pd.read_sql("""Select material, from_date, to_date From [ivy.mm.dim.orderlimit]""", con=engine)
+    orderlimit_df = pd.read_sql("""SELECT material, from_date, to_date FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
+    orderlimit_df.columns = ['material', 'from_date', 'to_date']
+    orderlimit_df['orderlimit'] = 1
+    orderlimit_df = orderlimit_df.drop_duplicates(subset='material')
 
-    # # %% BOM (dimbom_aset)
-    # bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.bom_aset] GROUP BY bom_parent_material""", con=engine)
-    # bom_df['bom'] = 1 
+    # %% BOM (dimbom_aset)
 
-    # # %% dim.mtrl for ms
-    # mtrl_df = pd.read_sql("""select material, ms from [ivy.mm.dim.mtrl] """, con=engine)
+    bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.bom_aset] GROUP BY bom_parent_material""", con=engine)
+    bom_df['bom'] = 1 
 
-    # # %% Final_df : master table
-    # merge4_df = pd.merge(input_df, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
-    # merge5_df = pd.merge(merge4_df, mtrl_df, on='material', how='left') #add ms
-    # merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
+    # %% dim.mtrl for ms
+    mtrl_df = pd.read_sql("""select material, ms from [ivy.mm.dim.mtrl] """, con=engine)
 
-    # # %%
-    # final_df = merge6_df[['material', 'plant', 'qty','orderlimit', 'bom','ms']]
-    # final_df.columns = ['material', 'plant', 'qty','orderlimit', 'bom','ms']
-    # final_df['availability']='None'
-    # final_df[['orderlimit','bom']] = final_df[['orderlimit','bom']].fillna(0) # select specific column
-    # final_df['orderlimit'] = final_df['orderlimit'].astype('int')
-    # final_df['bom'] = final_df['bom'].astype('int')
-    # final_df.reset_index(inplace=True)
-    # final_df.drop(['index'], axis=1, inplace=True)
-    # final_df.insert(7,"order_number",order_number)
+    # %% Final_df : master table
+    # merge1_df = pd.merge(input_df, stock_df, on = ['material', 'plant'], how = 'left')
+    # merge2_df = pd.merge(merge1_df, po_df, on = ['material', 'plant'], how = 'left')
+    # merge3_df = pd.merge(merge2_df, fcst_df, on = ['material', 'plant'], how = 'left')
+    merge4_df = pd.merge(input_df, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
+    merge5_df = pd.merge(merge4_df, mtrl_df, on='material', how='left') #add ms
+    merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
 
-    # # %%
-    # #Ivy
-    # final_df = final_df[final_df['plant'].isin(plant_list)]
+    # %%
+    final_df = merge6_df[['material', 'plant', 'qty','orderlimit', 'bom','ms']]
+    final_df.columns = ['material', 'plant', 'qty','orderlimit', 'bom','ms']
+    final_df['availability']='None'
+    final_df[['orderlimit','bom']] = final_df[['orderlimit','bom']].fillna(0) # select specific column
+    final_df['orderlimit'] = final_df['orderlimit'].astype('int')
+    final_df['bom'] = final_df['bom'].astype('int')
+    final_df.reset_index(inplace=True)
+    final_df.drop(['index'], axis=1, inplace=True)
+    final_df.insert(7,"order_number",order_number)
 
-    # print(final_df)
+    # %%
+    #Ivy
+    final_df = final_df[final_df['plant'].isin(plant_list)]
+
+    print(final_df)
+    
+    # %% Finalize
+
     # %%
     # Export output
     resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
-    input_df.to_csv(resultLoc+"\\"+"simulator_input.csv",index=False) #Change Location - (type 2)
+    final_df.to_csv(resultLoc+"\\"+"simulator_input.csv",index=False) #Change Location - (type 2)
     print(order_number)
 
 
