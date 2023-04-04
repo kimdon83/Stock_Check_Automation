@@ -487,46 +487,47 @@ if(len(inputKDC)>0):
     df_result1 = df_result1[['mtrl', 'BOseq', 'StartDate', 'EndDate',
                             '#ofBOdays', 'BOqty', 'BO$']]
 
-    df_result1 = df_result1[df_result.BOseq != 0].copy()
-    result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
+    if len(df_result1[df_result.BOseq != 0]) > 0:
+        df_result1 = df_result1[df_result.BOseq != 0].copy()
+        result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
 
-    # add ms , pdt to df_result1 from df_mtrl
-    df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
-    df_result1.drop("material", axis=1, inplace=True)
+        # add ms , pdt to df_result1 from df_mtrl
+        df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
+        df_result1.drop("material", axis=1, inplace=True)
 
-    df_result1['pdt']=df_result1.apply(lambda row: 90 if \
-        (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
+        df_result1['pdt']=df_result1.apply(lambda row: 90 if \
+            (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
 
-    df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
-        + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
+        df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
+            + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
 
-    row= df_result1.loc[1] # for degub  
+        row= df_result1.loc[1] # for degub  
 
-    df_result1["po_date"]=''
-    df_result1["poasn_qty"]=''
+        df_result1["po_date"]=''
+        df_result1["poasn_qty"]=''
 
-    # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
-    for index,row in df_result1.iterrows():
-        po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
-        po_next_bo =po_next_bo.sort_values('act_date').reset_index().drop("index",axis=1)
-        if( len(po_next_bo) >0):
-            df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
-            df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
+        # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
+        for index,row in df_result1.iterrows():
+            po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
+            po_next_bo =po_next_bo.sort_values('act_date').reset_index().drop("index",axis=1)
+            if( len(po_next_bo) >0):
+                df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
+                df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
 
 
-    # if bo bf po no -> days bf po :0
-    # yes -> days bf po : if seq ==-1 -> 
+        # if bo bf po no -> days bf po :0
+        # yes -> days bf po : if seq ==-1 -> 
 
-    df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
-    max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
-                row['#ofBOdays']),
-    0), axis=1)    
+        df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
+        max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
+                    row['#ofBOdays']),
+        0), axis=1)    
 
-    df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
+        df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
 
-    df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
-    df_result1['loc']='simulation'
-    df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
+        df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
+        df_result1['loc']='simulation'
+        df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
     end = time.time()
     timelist.append([end-start, "caluculate BO.csv"])
 
@@ -655,7 +656,8 @@ if(len(inputKDC)>0):
     df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
     # save simulator for KDC
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_KDCsimulation.csv"
-    df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
+    if len(df_result1[df_result.BOseq != 0]) > 0:
+        df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_KDC=df_simulation.copy()
     df_simulation.to_csv(simul_loc,index=False)
 
@@ -1037,47 +1039,48 @@ if(len(inputLA)>0):
     # df_result = summary_DM(df_total)
     df_result1 = df_result1[['mtrl', 'BOseq', 'StartDate', 'EndDate',
                             '#ofBOdays', 'BOqty', 'BO$']]
+    if len(df_result1[df_result.BOseq != 0]) > 0:
 
-    df_result1 = df_result1[df_result.BOseq != 0].copy()
-    result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
+        df_result1 = df_result1[df_result.BOseq != 0].copy()
+        result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
 
-    # add ms , pdt to df_result1 from df_mtrl
-    df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
-    df_result1.drop("material", axis=1, inplace=True)
+        # add ms , pdt to df_result1 from df_mtrl
+        df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
+        df_result1.drop("material", axis=1, inplace=True)
 
-    df_result1['pdt']=df_result1.apply(lambda row: 90 if \
-        (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
+        df_result1['pdt']=df_result1.apply(lambda row: 90 if \
+            (row.pdt<90)&(row.ms in {'01','91','41'}) else row.pdt, axis=1)
 
-    df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
-        + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
+        df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
+            + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
 
-    row= df_result1.loc[1] # for degub  
+        row= df_result1.loc[1] # for degub  
 
-    df_result1["po_date"]=''
-    df_result1["poasn_qty"]=''
+        df_result1["po_date"]=''
+        df_result1["poasn_qty"]=''
 
-    # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
-    for index,row in df_result1.iterrows():
-        po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
-        po_next_bo =po_next_bo.reset_index().drop("index",axis=1)
-        if( len(po_next_bo) >0):
-            df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
-            df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
+        # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
+        for index,row in df_result1.iterrows():
+            po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
+            po_next_bo =po_next_bo.reset_index().drop("index",axis=1)
+            if( len(po_next_bo) >0):
+                df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
+                df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
 
 
-    # if bo bf po no -> days bf po :0
-    # yes -> days bf po : if seq ==-1 -> 
+        # if bo bf po no -> days bf po :0
+        # yes -> days bf po : if seq ==-1 -> 
 
-    df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
-    max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
-                row['#ofBOdays']),
-    0), axis=1)    
+        df_result1['#BOdays_bf_pdt']=df_result1.apply(lambda row: 
+        max( min(((todays.date() + timedelta(days=row['pdt'])) - row['StartDate'].date()).days+4 , 
+                    row['#ofBOdays']),
+        0), axis=1)    
 
-    df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
+        df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
 
-    df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
-    df_result1['loc']='simulation'
-    df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
+        df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
+        df_result1['loc']='simulation'
+        df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
     end = time.time()
     timelist.append([end-start, "caluculate BO.csv"])
 
@@ -1202,7 +1205,8 @@ if(len(inputLA)>0):
         if((row.ms==91) or (row.ms==41)):
             df_simulation.loc[index,"eta"]         ='ms'+str(row.ms)
     df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
-    df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
+    if len(df_result1[df_result.BOseq != 0]) > 0:
+        df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_LA=df_simulation.copy()
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_simulation.csv"
     df_simulation.to_csv(simul_loc,index=False)
