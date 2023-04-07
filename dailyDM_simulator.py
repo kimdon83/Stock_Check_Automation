@@ -1308,10 +1308,10 @@ for k in range(1,max_row+1):
         ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
 for k in range(1,max_row+1): # 1000, 1110
     result_value = str(ws.cell(row=k, column=2).value)
-    if result_value == 1000:
+    if result_value == '1000':
         ws.cell(row=k, column=2).fill = red_format
         ws.cell(row=k, column=2).font = Font(color = '00800000')
-    elif result_value == 1110:
+    elif result_value == '1110':
         ws.cell(row=k, column=2).fill = green_format
         ws.cell(row=k, column=2).font = Font(color = '00008000')
     else:
