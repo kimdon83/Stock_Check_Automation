@@ -605,7 +605,7 @@ if(len(inputKDC)>0):
                     lastday.TheDate, '%Y-%m-%d')+timedelta(days=deltaD)
                 df_sumBOseq[index][5] = datetime.strftime(
                     bo, '%Y-%m-%d')
-                df_sumBOseq[index][6] = 'o'
+                df_sumBOseq[index][6] = 'N'
         else:
             print(df_sumBOseq[index])
             print("debug needed")
@@ -635,7 +635,7 @@ if(len(inputKDC)>0):
         elif(row.orderlimit==1):
             df_simulation.loc[index,"availability"]="check"
             df_simulation.loc[index,"eta"]         ='orderlimit'        
-        elif(row.ox=="o"):
+        elif(row.ox=="N"):
                 df_simulation.loc[index,"availability"]="OK"
         else:
             if sum(df_result1.loc[df_result1["mtrl"]==row.material,"#ofBOdays"])<7:
@@ -657,7 +657,7 @@ if(len(inputKDC)>0):
     # save simulator for KDC
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_KDCsimulation.csv"
     if len(df_result1[df_result.BOseq != 0]) > 0:
-        df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
+        df_simulation=df_simulation.merge(df_result1.loc[df_result1['BOseq']==1,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_KDC=df_simulation.copy()
     df_simulation.to_csv(simul_loc,index=False)
 
@@ -1206,7 +1206,7 @@ if(len(inputLA)>0):
             df_simulation.loc[index,"eta"]         ='ms'+str(row.ms)
     df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
     if len(df_result1[df_result.BOseq != 0]) > 0:
-        df_simulation=df_simulation.merge(df_result1.loc[:,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
+        df_simulation=df_simulation.merge(df_result1.loc[df_result1['BOseq']==1,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
     df_simulation_LA=df_simulation.copy()
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_simulation.csv"
     df_simulation.to_csv(simul_loc,index=False)
@@ -1247,8 +1247,8 @@ timelist.append([end-start, "Get pdt"])
 if "order_number" in input.columns:
     # stockcheck
     resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
-    simul_loc = resultLoc+"\\"+str(input.loc[0,"order_number"])+"_ivy.xlsx"
-    simul_loc1 = resultLoc+"\\"+str(input.loc[0,"order_number"])+"_bo.csv"
+    simul_loc = resultLoc+"\\"+str(input.order_number.values[0])+"_ivy.xlsx"
+    simul_loc1 = resultLoc+"\\"+str(input.order_number.values[0])+"_bo.csv"
 else:
     # simulation
     resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
@@ -1346,7 +1346,7 @@ for column_cells in ws.columns:
 #     for c in range(1,max_column+1):
 #         ws.cell(row=r, column=c).border = Border(top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000'), left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'))
 if "order_number" in input.columns:
-    simul_loc = resultLoc+"\\"+"SC"+str(input.loc[0,"order_number"])+"_ivy.xlsx"
+    simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_ivy.xlsx"
 else:
     simul_loc = simul_loc
 wb.save(simul_loc) #Change Location - (type 2)
