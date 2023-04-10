@@ -62,6 +62,8 @@ curYM = todays.strftime('%Y%m')
 # simulator
 loc_input = r'C:\Users\KISS Admin\Desktop\stock check practice\simulator_input.csv'
 input=pd.read_csv(loc_input)
+input['plant'] = input['plant'].astype(str)
+input['salesorg'] = input['plant'].astype(str)
 
 #
 orderlimit_df = pd.read_sql("""SELECT material, from_date, to_date FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
@@ -74,11 +76,11 @@ bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.
 bom_df['bom'] = 1 
 
 # %% dim.mtrl for ms
-mtrl_df = pd.read_sql("""select material, ms from [ivy.mm.dim.mtrl] """, con=engine)
+mrp01_ms = pd.read_sql("""select material, pl_plant as plant, ms from [ivy.mm.dim.mrp01] """, con=engine) #dim.mtrl
 
 # %% Final_df : master table
 merge4_df = pd.merge(input, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
-merge5_df = pd.merge(merge4_df, mtrl_df, on='material', how='left') #add ms
+merge5_df = pd.merge(merge4_df, mrp01_ms, on=['material','plant'], how='left') #add ms in input
 merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
 
 # %%
@@ -119,7 +121,7 @@ input_order =input.reset_index()
 
 # %%
 # %%
-df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine)
+df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
 df_mtrl.head()
 
 df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
@@ -129,15 +131,8 @@ df_po.head()
 
 
 # %%
-# get the full table for this calcutation.
+# define simulate_KDC_LA 
 ################################################################
-
-if(len(inputKDC)>0):
-    targetPlant='simulate_KDC'
-
-if(len(inputLA)>0):
-    targetPlant='simulate_LA'
-
 def simulate_KDC_LA(targetPlant):
     start = time.time()
     print("get sql date for",targetPlant)
@@ -461,7 +456,7 @@ def simulate_KDC_LA(targetPlant):
     timelist.append([end-start, "caluculate Daily and to_csv result"])
 
     # %%
-    df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine)
+    df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
     df_mtrl.head()
 
     df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
@@ -703,6 +698,7 @@ if(len(inputLA)>0):
 ################################################################
 print('LA end')
 # %% 
+#dim.mtrl
 replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
 sql_string="""SELECT material, pdt FROM [ivy.mm.dim.mtrl] WHERE material in ('change_string')
 """
