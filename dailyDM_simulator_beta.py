@@ -24,7 +24,7 @@ start = time.time()
 
 import json
 
-with open(r'C:\Users\KISS Admin\Desktop\IVYENT_DH\data.json', 'r') as f:
+with open(r'C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\IVYENT_DH\data.json', 'r') as f:
     data = json.load(f)
 
 # getID and password
@@ -42,25 +42,15 @@ print("Connection Established:")
 end = time.time()
 timelist.append([end-start, "Connect to KIRA server"])
 
-
-
 # %%
 
 todays = datetime.today()
-# first_days = todays.replace(day=1)
-# last_days = datetime(todays.year, todays.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
-# days_left = last_days - todays
 today = todays.strftime('%Y-%m-%d')
 curYM = todays.strftime('%Y%m')
-# first_day = first_days.strftime('%Y-%m-%d')
-# last_day = last_days.strftime('%Y-%m-%d')
-# business_days = np.busday_count(begindates=first_day, enddates=today) #By today
-# business_days_thismonth = np.busday_count(begindates=first_day, enddates=last_day)
-# business_days_left = np.busday_count(begindates=today, enddates=last_day)
 # %%
 # read simulator_input.csv
 # simulator
-loc_input = r'C:\Users\KISS Admin\Desktop\stock check practice\simulator_input.csv'
+loc_input = r'C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\stock check practice\simulator_input.csv'
 input=pd.read_csv(loc_input)
 input['plant'] = input['plant'].astype(str)
 input['salesorg'] = input['plant'].astype(str)
@@ -115,21 +105,125 @@ final_df.loc[:,'plant'] = final_df['plant'].astype('int')
 
 input=final_df.copy()
 #
-inputKDC=input.loc[input.plant%100==0]
-inputLA=input.loc[input.plant%100!=0]
+inputKDC=input.loc[input.plant%100==0] # it could be problem if G140 replace 1400
+inputLA=input.loc[input.plant%100!=0] # it could be problem if G140 replace 1400
 input_order =input.reset_index()
 
 # %%
 # %%
-df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
-df_mtrl.head()
+# df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
+# GROUP BY material, act_date
+# """, con=engine)
+# df_po.head()
 
-df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
-GROUP BY material, act_date
-""", con=engine)
-df_po.head()
+# %%
+# define DailyCalculate
+start = time.time()
+def DailyCalculate(df):
+    half_flag = False
+    if int(todays.strftime('%d')) > 15:
+        print("The adjustment after half month on the starting month will be applied")
+        half_flag = True
+    # df = df.reset_index()
 
+    df_mtrl = pd.DataFrame(df["mtrl"].unique())
+    df_date = pd.DataFrame(df["TheDate"].unique())
 
+    # set BOseq, residue, BOqty on df
+    df["BOseq"] = 999
+    df["residue"] = 999
+    df["BOqty"] = 0
+    df["BO$"] = 0
+    df = df[['mtrl', 'TheDate', 'nsp', 'avgDbo', 'poasn_qty', 'avgDreorder', 'On_hand_qty', 'fcstD',
+            "BOseq", "residue", "BOqty", "BO$", 'thisMthReOdqty', 'WDs', 'accumWDs']]
+    # define po processing time as 5days
+    poDays = 5
+
+    df_mtrl = df_mtrl.to_numpy()
+
+    colnames = df.columns
+    df = df.to_numpy()
+
+    for index_mtrl in range(len(df_mtrl)):
+        if index_mtrl % 19 == 0:
+            # print( f'{df_mtrl.loc[index_mtrl][0]:15} {float(index_mtrl+1)/float(len(df_mtrl))*100:.2f}% ') # print % progress
+            # print % progress
+            print(
+                f'{df_mtrl[index_mtrl][0]:15} {float(index_mtrl+1)/float(len(df_mtrl))*100:.2f}% ')
+        # set current BOflag, BOseq, Residue
+        BOflag = 0
+        curBOseq = 0
+        # df.loc[index_mtrl*len(df_date), "On_hand_qty"]
+        curResidue = df[index_mtrl*len(df_date)][6]
+        # check if there is no poasn for this mtrl
+        # poasn_test = df.loc[df["mtrl"] == df.loc[index_mtrl *len(df_date), "mtrl"], "poasn_qty"].sum() == 0
+        df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
+
+        poasn_test = df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
+        if ((curResidue == 0) & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
+            # df.loc[index_mtrl*len(df_date):(index_mtrl+1) *	len(df_date)-1, "residue"] = 0
+            df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 9] = 0
+            # df.loc[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date)-1, "BOseq"] = -1
+            df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 8] = -1
+        else:
+            # df[index_mtrl*len(df_date):(index_mtrl+1)*len(df_date)]=CalcMtrl(df,index_mtrl,len(df_date),poDays,curBOseq,BOflag,curResidue)
+            for index_date in range(5, len(df_date)):
+
+                curIndex = index_mtrl*len(df_date)+index_date  # current Index
+                # df.loc[curIndex,"On_hand_qty"]=curResidue+df.loc[curIndex-poDays,"poasn_qty"]
+                curYMflag = (curYM == df[curIndex, 1].strftime('%Y%m'))
+                if half_flag == True:  # halfday
+                    # if df[curIndex,"fcstD"]*df[curIndex,accumWDs]<df[curIndex,thisMthReOdqty]:
+                    if (df[curIndex, 7]*df[curIndex, 14] < df[curIndex, 12]) & curYMflag:
+                        # print(f'{df[curIndex,7]}*{df[curIndex,14]}<{df[curIndex,12]}')
+                        df[curIndex, 7] = df[curIndex, 12]/df[curIndex, 14]
+                df[curIndex, 6] = curResidue+df[curIndex-poDays, 4]
+                if BOflag == 1:  # BO status
+                    # poasn comes => end of BO, set BOflag, BOseq as out of BO. calc. curResidue
+                    if df[curIndex-poDays, 4] > 0:
+                        BOflag = 0
+                        # df.loc[curIndex, "BOseq"] = 0
+                        df[curIndex, 8] = 0
+                        # curResidue = curResidue + df.loc[curIndex-poDays, "poasn_qty"]-df.loc[curIndex, "fcstD"]
+                        curResidue = curResidue + \
+                            df[curIndex-poDays, 4]-df[curIndex, 7]
+                    else:
+                        df[curIndex, 8] = curBOseq
+                else:  # not BO
+                    # curResidue = curResidue + df.loc[curIndex-poDays, "poasn_qty"]-df.loc[curIndex,"fcstD"]
+                    curResidue = curResidue + \
+                        df[curIndex-poDays, 4]-df[curIndex, 7]
+                    # Start of BO. +=1 BOseq. set curResidue, BOflag according to BO.
+                    if curResidue <= 0:
+                        curBOseq += 1
+                        curResidue = 0
+                        BOflag = 1
+                        df[curIndex, 8] = curBOseq
+                    else:  # curResidue >0 -> not BO
+                        df[curIndex, 8] = 0
+                # df.loc[curIndex, "residue"] = curResidue
+                df[curIndex, 9] = curResidue
+
+                # For BO days, set BOqty as fcstD, calc. BO$ = BOqty * nsp
+                if df[curIndex, 8] != 0:
+                    # df.loc[curIndex, "BOqty"]=df.loc[curIndex, "fcstD"]
+                    df[curIndex, 10] = df[curIndex, 7]
+                    # df.loc[curIndex, "BO$"]=df.loc[curIndex, "BOqty"]*df.loc[curIndex, "nsp"]
+                    df[curIndex, 11] = df[curIndex, 10]*df[curIndex, 2]
+                else:
+                    df[curIndex, 10] = 0
+    print("creating The result table was done")
+
+    # calculate BO$. save Total DM table
+    df = pd.DataFrame(df)
+    df.columns = colnames
+
+    df["BO$"] = df["BOqty"]*df["nsp"]
+    # df=df.loc[df.BOseq!=999]
+    return df
+
+end = time.time()
+timelist.append([end-start, "def DailyCalculate(df):"])
 # %%
 # define simulate_KDC_LA 
 ################################################################
@@ -295,7 +389,7 @@ def simulate_KDC_LA(targetPlant):
     # %%
     # define location
     start = time.time()
-    file_loc = r'C:\Users\KISS Admin\Desktop\IVYENT_DH\P6. DailyDM except codes\simulation'
+    file_loc = r'C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\IVYENT_DH\P6. DailyDM except codes\simulation'
     # group by mtrl & TheDate
     if targetPlant=='simulate_KDC':
         df_total = df_ft[df_ft.plant.isin(['1000','1100','1300','1400','G140','G110','G100','G130'])].groupby(["mtrl", "TheDate"]).agg({'nsp':'mean','avgDbo':'sum',"poasn_qty":'sum','avgDreorder':'sum','On_hand_qty':'sum','fcstD':'sum','thisMthReOdqty':'sum'})
@@ -307,126 +401,17 @@ def simulate_KDC_LA(targetPlant):
 
     # reduce on_hand_qty as input requirement qty. 
     # simulator
-    for index, row in df_total.iterrows():
+    for index, row in df_total.iterrows(): 
         if targetPlant=='simulate_KDC':
-            row.On_hand_qty=row.On_hand_qty-inputKDC[inputKDC['material']==row.mtrl].qty
+            # row.On_hand_qty=row.On_hand_qty-inputKDC[inputKDC['material']==row.mtrl].qty.values[0]
+            df_total.loc[index,"On_hand_qty"]=row.On_hand_qty-inputKDC[inputKDC['material']==row.mtrl].qty.values[0]
         elif targetPlant=='simulate_LA':
-            row.On_hand_qty=row.On_hand_qty-inputLA[inputKDC['material']==row.mtrl].qty       
+            # row.On_hand_qty=row.On_hand_qty-inputLA[inputKDC['material']==row.mtrl].qty.values[0]       
+            df_total.loc[index,"On_hand_qty"]=row.On_hand_qty-inputKDC[inputKDC['material']==row.mtrl].qty.values[0]
 
     end = time.time()
     timelist.append(
         [end-start, """df_total = df_ft.groupby(["mtrl", "TheDate"]).sum()"""])
-
-    # %%
-    # define DailyCalculate
-    start = time.time()
-
-    def DailyCalculate(df):
-        half_flag = False
-        if int(todays.strftime('%d')) > 15:
-            print("The adjustment after half month on the starting month will be applied")
-            half_flag = True
-        # df = df.reset_index()
-
-        df_mtrl = pd.DataFrame(df["mtrl"].unique())
-        df_date = pd.DataFrame(df["TheDate"].unique())
-
-        # set BOseq, residue, BOqty on df
-        df["BOseq"] = 999
-        df["residue"] = 999
-        df["BOqty"] = 0
-        df["BO$"] = 0
-        df = df[['mtrl', 'TheDate', 'nsp', 'avgDbo', 'poasn_qty', 'avgDreorder', 'On_hand_qty', 'fcstD',
-                "BOseq", "residue", "BOqty", "BO$", 'thisMthReOdqty', 'WDs', 'accumWDs']]
-        # define po processing time as 5days
-        poDays = 5
-
-        df_mtrl = df_mtrl.to_numpy()
-
-        colnames = df.columns
-        df = df.to_numpy()
-
-        for index_mtrl in range(len(df_mtrl)):
-            if index_mtrl % 19 == 0:
-                # print( f'{df_mtrl.loc[index_mtrl][0]:15} {float(index_mtrl+1)/float(len(df_mtrl))*100:.2f}% ') # print % progress
-                # print % progress
-                print(
-                    f'{df_mtrl[index_mtrl][0]:15} {float(index_mtrl+1)/float(len(df_mtrl))*100:.2f}% ')
-            # set current BOflag, BOseq, Residue
-            BOflag = 0
-            curBOseq = 0
-            # df.loc[index_mtrl*len(df_date), "On_hand_qty"]
-            curResidue = df[index_mtrl*len(df_date)][6]
-            # check if there is no poasn for this mtrl
-            # poasn_test = df.loc[df["mtrl"] == df.loc[index_mtrl *len(df_date), "mtrl"], "poasn_qty"].sum() == 0
-            df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-
-            poasn_test = df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 4].sum() ==0
-            if ((curResidue == 0) & poasn_test):  # if no inventory and poasn => set residue:0 and BOseq:-1
-                # df.loc[index_mtrl*len(df_date):(index_mtrl+1) *	len(df_date)-1, "residue"] = 0
-                df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 9] = 0
-                # df.loc[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date)-1, "BOseq"] = -1
-                df[index_mtrl*len(df_date):(index_mtrl+1) * len(df_date), 8] = -1
-            else:
-                # df[index_mtrl*len(df_date):(index_mtrl+1)*len(df_date)]=CalcMtrl(df,index_mtrl,len(df_date),poDays,curBOseq,BOflag,curResidue)
-                for index_date in range(5, len(df_date)):
-
-                    curIndex = index_mtrl*len(df_date)+index_date  # current Index
-                    # df.loc[curIndex,"On_hand_qty"]=curResidue+df.loc[curIndex-poDays,"poasn_qty"]
-                    curYMflag = (curYM == df[curIndex, 1].strftime('%Y%m'))
-                    if half_flag == True:  # halfday
-                        # if df[curIndex,"fcstD"]*df[curIndex,accumWDs]<df[curIndex,thisMthReOdqty]:
-                        if (df[curIndex, 7]*df[curIndex, 14] < df[curIndex, 12]) & curYMflag:
-                            # print(f'{df[curIndex,7]}*{df[curIndex,14]}<{df[curIndex,12]}')
-                            df[curIndex, 7] = df[curIndex, 12]/df[curIndex, 14]
-                    df[curIndex, 6] = curResidue+df[curIndex-poDays, 4]
-                    if BOflag == 1:  # BO status
-                        # poasn comes => end of BO, set BOflag, BOseq as out of BO. calc. curResidue
-                        if df[curIndex-poDays, 4] > 0:
-                            BOflag = 0
-                            # df.loc[curIndex, "BOseq"] = 0
-                            df[curIndex, 8] = 0
-                            # curResidue = curResidue + df.loc[curIndex-poDays, "poasn_qty"]-df.loc[curIndex, "fcstD"]
-                            curResidue = curResidue + \
-                                df[curIndex-poDays, 4]-df[curIndex, 7]
-                        else:
-                            df[curIndex, 8] = curBOseq
-                    else:  # not BO
-                        # curResidue = curResidue + df.loc[curIndex-poDays, "poasn_qty"]-df.loc[curIndex,"fcstD"]
-                        curResidue = curResidue + \
-                            df[curIndex-poDays, 4]-df[curIndex, 7]
-                        # Start of BO. +=1 BOseq. set curResidue, BOflag according to BO.
-                        if curResidue <= 0:
-                            curBOseq += 1
-                            curResidue = 0
-                            BOflag = 1
-                            df[curIndex, 8] = curBOseq
-                        else:  # curResidue >0 -> not BO
-                            df[curIndex, 8] = 0
-                    # df.loc[curIndex, "residue"] = curResidue
-                    df[curIndex, 9] = curResidue
-
-                    # For BO days, set BOqty as fcstD, calc. BO$ = BOqty * nsp
-                    if df[curIndex, 8] != 0:
-                        # df.loc[curIndex, "BOqty"]=df.loc[curIndex, "fcstD"]
-                        df[curIndex, 10] = df[curIndex, 7]
-                        # df.loc[curIndex, "BO$"]=df.loc[curIndex, "BOqty"]*df.loc[curIndex, "nsp"]
-                        df[curIndex, 11] = df[curIndex, 10]*df[curIndex, 2]
-                    else:
-                        df[curIndex, 10] = 0
-        print("creating The result table was done")
-
-        # calculate BO$. save Total DM table
-        df = pd.DataFrame(df)
-        df.columns = colnames
-
-        df["BO$"] = df["BOqty"]*df["nsp"]
-        # df=df.loc[df.BOseq!=999]
-        return df
-
-
-    end = time.time()
-    timelist.append([end-start, "def DailyCalculate(df):"])
 
     # %%
     # apply DailyCalculate to df_total and save as csv
@@ -438,8 +423,7 @@ def simulate_KDC_LA(targetPlant):
     df_total = DailyCalculate(df_total)
     df_total = df_total[df_total['TheDate'] >= todays]
 
-    df_total.reset_index(inplace=True)
-    df_total.drop("index", axis=1, inplace=True)
+    df_total.reset_index(inplace=True, drop=True)
 
     total_loc = file_loc+"\\"+today+"_"+targetPlant+"_ESA.csv"
 
@@ -459,10 +443,17 @@ def simulate_KDC_LA(targetPlant):
     df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
     df_mtrl.head()
 
-    df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
-    WHERE plant in ('1100','1400','G110','G140','1000','G100')
+    if targetPlant=='simulate_KDC':
+        df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
+    WHERE plant in ('1000','1100','1300','1400','G140','G110','G100','G130')
     GROUP BY material, act_date
-    """, con=engine)
+    """, con=engine) 
+
+    elif targetPlant=='simulate_LA':
+        df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
+    WHERE plant in ('1110','1410')
+    GROUP BY material, act_date
+    """, con=engine) 
     df_po.head()
 
     # %%
@@ -495,8 +486,9 @@ def simulate_KDC_LA(targetPlant):
         df_result1 = df_result1[df_result.BOseq != 0].copy()
         result_loc = file_loc+"\\"+today+"_"+targetPlant+"_BO.csv"
 
-        # add ms , pdt to df_result1 from df_mtrl
+        # add pdt, ms to df_result1 from df_mtrl 
         df_result1=df_result1.merge(df_mtrl, how='left', left_on='mtrl',right_on='material')
+
         df_result1.drop("material", axis=1, inplace=True)
 
         df_result1['pdt']=df_result1.apply(lambda row: 90 if \
@@ -505,19 +497,17 @@ def simulate_KDC_LA(targetPlant):
         df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
             + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
 
-        row= df_result1.loc[1] # for degub  
+        # row= df_result1.loc[1] # for degub  
 
         df_result1["po_date"]=''
         df_result1["poasn_qty"]=''
 
-        # df_result1=df_result1.merge(df_first_po, how='left', left_on='mtrl',right_on='material').drop('material',axis=1)
         for index,row in df_result1.iterrows():
             po_next_bo =df_po[(row.StartDate.date()<df_po.loc[:,"act_date"] ) & (row.mtrl == df_po.loc[:,"material"])]
             po_next_bo =po_next_bo.sort_values('act_date').reset_index().drop("index",axis=1)
             if( len(po_next_bo) >0):
                 df_result1.loc[index,"po_date"]=po_next_bo.loc[0,"act_date"]
                 df_result1.loc[index,"poasn_qty"]=po_next_bo.loc[0,"poasn_qty"]
-
 
         # if bo bf po no -> days bf po :0
         # yes -> days bf po : if seq ==-1 -> 
@@ -536,98 +526,19 @@ def simulate_KDC_LA(targetPlant):
     timelist.append([end-start, "caluculate BO.csv"])
 
     # %%
-    start = time.time()
-
-    def find1(df):
-        for i in range(len(df)):
-            if df[i]==1:
-                return i
-        return 0
-
-    df_sumBOseq = df_result.groupby('mtrl').agg({'BOseq': ['sum','count']})
-    df_sumBOseq=df_sumBOseq.reset_index()
-    df_sumBOseq.columns = ['mtrl', 'BOseq', 'count']
-    df_sumBOseq['mtrl_last_index']=(df_sumBOseq['count']).cumsum()-1
-    df_sumBOseq['loc1']=df_result.groupby('mtrl')['BOseq'].agg(lambda x: find1(list(x))).reset_index()['BOseq']
-
-    # absolute location of (BOseq==1) for each mtrl = mtrl_last_index-count+(loc1-1)
-
-    df_sumBOseq["StartDate"] = ''   # df_sumBOseq[index][5]
-    df_sumBOseq["ox"] = ""          # df_sumBOseq[index][6]
-
-    df_mtrl = pd.DataFrame(df_total["mtrl"].unique())
-    df_date = pd.DataFrame(df_total["TheDate"].unique())
-
-    len_mtrl=len(df_mtrl)
-    len_date=len(df_date)
-
-    colnames = df_sumBOseq.columns
-    df_sumBOseq=df_sumBOseq.to_numpy()
-
-    # for index, row in df_sumBOseq.iterrows():
-    for index in range(len(df_sumBOseq)):
-        # if row.BOseq > 0:
-        if df_sumBOseq[index][1]>0:
-            # id = (df_result["mtrl"] == df_sumBOseq[index][0]) & (df_result["BOseq"] == 1)
-            # absolute location of (BOseq==1) for each mtrl = mtrl_last_index-count+(loc1-1)        
-            id = df_sumBOseq[index][3]-df_sumBOseq[index][4]+1
-            # df_sumBOseq[index][5] = df_result.loc[id,"StartDate"].values[0]
-            df_sumBOseq[index][5] = df_result.loc[id,"StartDate"]
-            df_sumBOseq[index][6] = 'Y'
-        # elif row.BOseq< 0:
-        elif df_sumBOseq[index][1] < 0:
-            df_sumBOseq[index][5] = today 
-            df_sumBOseq[index][6] = 'Y'
-        # elif row.BOseq == 0:
-        elif df_sumBOseq[index][1] == 0:
-            # lastday = df_total.loc[df_total.mtrl == df_sumBOseq[index][0]].iloc[-1]
-            lastday = df_total.loc[len_date*(index+1)-1]
-            # fcst=lastday.fcstD
-            # if sum(df_total.loc[df_total.mtrl == df_sumBOseq[index][0], "fcstD"]) == 0:
-            if sum(df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']) == 0:
-                # inventory>0 but no fcst
-                df_sumBOseq[index][5] = '2100-01-01'
-                df_sumBOseq[index][6] = 'N'
-            else:
-                if lastday.fcstD == 0:
-                    fcsts=df_total.loc[len_date*index:len_date*(index+1)-1,'fcstD']
-                    # fcst = np.average(df_total.loc[(df_total.mtrl == df_sumBOseq[index][0]) & (df_total.fcstD > 0), "fcstD"].values)
-                    if sum(fcsts>0)== 0:
-                        fcst=0
-                        deltaD=1000
-                    fcst = np.average(fcsts[fcsts>0])
-                else:  # it means lastday.fcstD>0
-                    fcst = lastday.fcstD
-                deltaD = lastday.residue/fcst
-                if deltaD>1000:
-                    deltaD=1000
-                elif pd.isnull(deltaD):
-                    print(lastday)
-                    print(fcst)
-                    deltaD=1000
-                bo = datetime.strptime(
-                    lastday.TheDate, '%Y-%m-%d')+timedelta(days=deltaD)
-                df_sumBOseq[index][5] = datetime.strftime(
-                    bo, '%Y-%m-%d')
-                df_sumBOseq[index][6] = 'N'
-        else:
-            print(df_sumBOseq[index])
-            print("debug needed")
-
-    df_sumBOseq= pd.DataFrame(df_sumBOseq)
-    df_sumBOseq.columns= colnames
-    df_sumBOseq
-    # %%
-    BOdateloc = file_loc+"\\"+today+"_"+targetPlant+"_BOdate.csv"
-    df_sumBOseq['loc']='simulation'
-    df_sumBOseq['days_from_today']=(pd.to_datetime(df_sumBOseq['StartDate']) - datetime.now()).dt.days+1
-    df_sumBOseq["DM"]=df_sumBOseq['days_from_today']/365.25*12
-
-    df_sumBOseq[["mtrl", "StartDate",'DM', 'loc']].to_csv(BOdateloc, index=False)
-    # %%
     # simulator
-    df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material'])
-    df_simulation= df_simulation[["material","plant","qty","ox","orderlimit","bom",'ms']]
+    # df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material']) 
+    df_result1.drop("ms",axis=1,inplace=True)
+
+    if targetPlant=='simulate_KDC':
+        input_prep=inputKDC[["material","plant","qty","orderlimit","bom",'ms']]
+    else:
+        input_prep=inputLA[["material","plant","qty","orderlimit","bom",'ms']]
+
+    df_simulation =input_prep.merge(df_result1[df_result1["BOseq"]==1], right_on=['mtrl'],left_on=['material'])
+    
+    # df_simulation= df_simulation[["material","plant","qty","ox","orderlimit","bom",'ms']]
+    # df_simulation= df_simulation[["material","plant","qty","","orderlimit","bom",'ms']]
     df_simulation.insert(6,"availability","")
     df_simulation.insert(7,"eta","")
 
@@ -638,7 +549,8 @@ def simulate_KDC_LA(targetPlant):
         elif(row.orderlimit==1):
             df_simulation.loc[index,"availability"]="check"
             df_simulation.loc[index,"eta"]         ='orderlimit'        
-        elif(row.ox=="N"):
+        # elif(row.ox=="N"):
+        elif(row.BOseq!=1):
                 df_simulation.loc[index,"availability"]="OK"
         else:
             if sum(df_result1.loc[df_result1["mtrl"]==row.material,"#ofBOdays"])<7:
@@ -656,16 +568,15 @@ def simulate_KDC_LA(targetPlant):
                 df_simulation.loc[index,"eta"]         =date+ str(sum(df_result1.loc[df_result1["mtrl"]==row.material,"#ofBOdays"]))      
         if((row.ms==91) or (row.ms==41)):
             df_simulation.loc[index,"eta"]         =df_simulation.loc[index,"eta"]+'ms'+str(row.ms)
-    df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
+    # df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
+
+    df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt','adj. pdt']]
+
+    # TODO
     # save simulator
-    if len(df_result1[df_result.BOseq != 0]) > 0:
-        df_simulation=df_simulation.merge(df_result1.loc[df_result1['BOseq']==1,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
-    # if targetPlant=='simulate_KDC':
-    #     df_simulation_KDC=df_simulation.copy()
-    #     df_result1_KDC=df_result1.copy()
-    # elif targetPlant=='simulate_LA':
-    #     df_simulation_LA=df_simulation.copy()
-    #     df_result1_LA=df_result1.copy()
+    # if len(df_result1[df_result.BOseq != 0]) > 0:
+    #     df_simulation=df_simulation.merge(df_result1.loc[df_result1['BOseq']==1,['mtrl','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt']], how='left',right_on='mtrl',left_on='material').drop('mtrl',axis=1)
+
     simul_loc = file_loc+"\\"+today+"_"+targetPlant+"_simulation.csv"
     df_simulation.to_csv(simul_loc,index=False)
 
@@ -699,19 +610,19 @@ if(len(inputLA)>0):
 print('LA end')
 # %% 
 #dim.mtrl
-replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
-sql_string="""SELECT material, pdt FROM [ivy.mm.dim.mtrl] WHERE material in ('change_string')
-"""
+# replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
+# sql_string="""SELECT material, pdt FROM [ivy.mm.dim.mtrl] WHERE material in ('change_string')
+# """
 
-sql_string1=sql_string.replace("'change_string'",replace_material)
-df_pdt = pd.read_sql(sql_string1, con=engine)
+# sql_string1=sql_string.replace("'change_string'",replace_material)
+# df_pdt = pd.read_sql(sql_string1, con=engine)
 
 replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
 sql_string="""SELECT material, pl_plant as plant, total_stock FROM [ivy.mm.dim.mrp01] WHERE material in ('change_string')
 """
 
 sql_string1=sql_string.replace("'change_string'",replace_material)
-df_mrp01 = pd.read_sql(sql_string1, con=engine)
+df_mrp01 = pd.read_sql(sql_string1, con=engine) # TODO: add to result file
 
 end = time.time()
 timelist.append([end-start, "Get pdt"])
@@ -719,12 +630,12 @@ timelist.append([end-start, "Get pdt"])
 
 if "order_number" in input.columns:
     # stockcheck
-    resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
+    resultLoc=r"C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\stock check practice"
     simul_loc = resultLoc+"\\"+str(input.order_number.values[0])+"_ivy.xlsx"
     simul_loc1 = resultLoc+"\\"+str(input.order_number.values[0])+"_bo.csv"
 else:
     # simulation
-    resultLoc=r"C:\Users\KISS Admin\Desktop\stock check practice"
+    resultLoc=r"C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\stock check practice"
     simul_loc = resultLoc+"\\"+today+"_simulation_total.xlsx"
     simul_loc1 = resultLoc+"\\"+today+"_simulation_bo.csv"
 
@@ -738,8 +649,8 @@ else:
     df_result=pd.concat(df_simulation_KDC,df_simulation_LA)
     df_result1=pd.concat(df_result1_KDC,df_result1_LA)
 
-df_result=df_result.merge(df_pdt,how="left")
-df_result["today+pdt"]= df_result["pdt"].apply(lambda x: datetime.strftime(datetime.today() + relativedelta(days=x), ('%Y-%m-%d')))          
+# df_result=df_result.merge(df_pdt,how="left")
+df_result["today+pdt"]= df_result["adj. pdt"].apply(lambda x: datetime.strftime(datetime.today() + relativedelta(days=x), ('%Y-%m-%d')))          
 # df_result["ms"]= df_result["ms"].apply(lambda x: format(x,'2d'))          
 
 df_result["eta2"]=''
@@ -752,8 +663,14 @@ for index, row in df_result.iterrows():
             df_result.loc[index,"eta2"]="bo bf pdt"
 
 df_result=input_order.loc[:,["index","material","plant"]].merge(df_result).drop("index",axis=1)
+df_result["availability"]=df_result.apply(lambda row: "YES" if (row["availability"]=="NO") & (row["bo_bf_pdt"]=="no") \
+        else row["availability"] ,axis=1)
+df_result["eta"]=df_result.apply(lambda row: "" if (row["availability"]=="YES") else row["eta"] ,axis=1)
+
+
 df_result.to_excel(simul_loc,index=False)
 df_result1["BOdays/BOqty"]=df_result1["#ofBOdays"]/df_result1["BOqty"]
+
 df_result1.to_csv(simul_loc1,index=False)
 
 # %%
@@ -803,9 +720,7 @@ for k in range(1,max_row+1): # ms 91 or 41
     result_value = str(ws.cell(row=k, column=6).value)
     if (result_value == '41') or (result_value=='91'):
         ws.cell(row=k, column=6).fill = blue_format
-        ws.cell(row=k, column=7).font = Font(color = '00800000')
-    
-
+        ws.cell(row=k, column=7).font = Font(color = '00800000')   
 
 for column_cells in ws.columns:
     new_column_length = max(len(str(cell.value)) for cell in column_cells)

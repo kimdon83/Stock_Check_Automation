@@ -42,8 +42,6 @@ print("Connection Established:")
 end = time.time()
 timelist.append([end-start, "Connect to KIRA server"])
 
-
-
 # %%
 
 todays = datetime.today()
@@ -510,7 +508,7 @@ def simulate_KDC_LA(targetPlant):
         df_result1['bo_bf_pdt'] =df_result1.apply(lambda row: "yes" if (todays.date() \
             + timedelta(days=row['pdt'])) > row['StartDate'].date() else "no", axis=1)
 
-        row= df_result1.loc[1] # for degub  
+        # row= df_result1.loc[1] # for degub  
 
         df_result1["po_date"]=''
         df_result1["poasn_qty"]=''
