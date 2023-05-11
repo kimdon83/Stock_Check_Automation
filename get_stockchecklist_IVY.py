@@ -247,5 +247,4 @@ if len(order_df) > 0:
 # %%
 print("==========================================================")
 print("get_stockchecklist_IVY.py done")
-print("get_stockchecklist_IVY.py done")
 

@@ -51,9 +51,9 @@ curYM = todays.strftime('%Y%m')
 # read simulator_input.csv
 # simulator
 loc_input = r'C:\OneDrive\OneDrive - Kiss Products Inc\Desktop\stock check practice\simulator_input.csv'
-input=pd.read_csv(loc_input)
-input['plant'] = input['plant'].astype(str)
-input['salesorg'] = input['plant'].astype(str)
+input0=pd.read_csv(loc_input)
+input0['plant'] = input0['plant'].astype(str)
+input0['salesorg'] = input0['salesorg'].astype(str)
 
 #
 orderlimit_df = pd.read_sql("""SELECT material, from_date, to_date FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
@@ -69,8 +69,8 @@ bom_df['bom'] = 1
 mrp01_ms = pd.read_sql("""select material, pl_plant as plant, ms from [ivy.mm.dim.mrp01] """, con=engine) #dim.mtrl
 
 # %% Final_df : master table
-merge4_df = pd.merge(input, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
-merge5_df = pd.merge(merge4_df, mrp01_ms, on=['material','plant'], how='left') #add ms in input
+merge4_df = pd.merge(input0, orderlimit_df, on='material', how='left') #if order limit, then orderlimit column == 1
+merge5_df = pd.merge(merge4_df, mrp01_ms, on=['material','plant'], how='left') #add ms in input0
 merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
 
 # %%
@@ -87,7 +87,7 @@ final_df.drop(['index'], axis=1, inplace=True)
 # %%
 #Ivy
 
-salesorg= str(input.loc[0,"salesorg"])
+salesorg= str(input0.loc[0,"salesorg"])
 if salesorg == '1300': #For AST orders, we do not check for plant 1000
     plant_list = ['1100', '1110']
 
@@ -96,8 +96,8 @@ else:
 
 final_df = final_df[final_df['plant'].isin(plant_list)]
 
-if "order_number" in input.columns:
-    order_number=input.loc[0,'order_number']
+if "order_number" in input0.columns:
+    order_number=input0.loc[0,'order_number']
     final_df.insert(7,'order_number',order_number)
 print(final_df)
 
@@ -528,14 +528,15 @@ def simulate_KDC_LA(targetPlant):
     # %%
     # simulator
     # df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material']) 
-    df_result1.drop("ms",axis=1,inplace=True)
+    if "ms" in df_result1.columns:
+        df_result1.drop("ms",axis=1,inplace=True)
 
     if targetPlant=='simulate_KDC':
         input_prep=inputKDC[["material","plant","qty","orderlimit","bom",'ms']]
     else:
         input_prep=inputLA[["material","plant","qty","orderlimit","bom",'ms']]
 
-    df_simulation =input_prep.merge(df_result1[df_result1["BOseq"]==1], right_on=['mtrl'],left_on=['material'])
+    df_simulation =input_prep.merge(df_result1[df_result1["BOseq"]==1], right_on=['mtrl'],left_on=['material'],how='left')
     
     # df_simulation= df_simulation[["material","plant","qty","ox","orderlimit","bom",'ms']]
     # df_simulation= df_simulation[["material","plant","qty","","orderlimit","bom",'ms']]
@@ -569,8 +570,14 @@ def simulate_KDC_LA(targetPlant):
         if((row.ms==91) or (row.ms==41)):
             df_simulation.loc[index,"eta"]         =df_simulation.loc[index,"eta"]+'ms'+str(row.ms)
     # df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms']]
-
-    df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt','adj. pdt']]
+    # df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt','adj. pdt']]
+    try:
+        columns = ["material", "plant", "qty", "availability", "eta", 'ms',
+                'bo_bf_pdt', 'po_date', 'poasn_qty', '#BOdays_bf_pdt', 'adj. pdt']
+        df_simulation = df_simulation.reindex(columns=columns)
+    except KeyError as e:
+        print(f"The following columns are not present in the DataFrame: {e}")
+        # Handle the error or raise an exception, depending on your requirements
 
     # TODO
     # save simulator
@@ -650,7 +657,8 @@ else:
     df_result1=pd.concat(df_result1_KDC,df_result1_LA)
 
 # df_result=df_result.merge(df_pdt,how="left")
-df_result["today+pdt"]= df_result["adj. pdt"].apply(lambda x: datetime.strftime(datetime.today() + relativedelta(days=x), ('%Y-%m-%d')))          
+df_result["today+pdt"]= df_result["adj. pdt"].apply(lambda x: datetime.strftime(datetime.today() + relativedelta(days=x)
+    , ('%Y-%m-%d')  )     if x>0 else "")          
 # df_result["ms"]= df_result["ms"].apply(lambda x: format(x,'2d'))          
 
 df_result["eta2"]=''
