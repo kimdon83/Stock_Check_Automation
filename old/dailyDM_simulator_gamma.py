@@ -18,110 +18,115 @@ from openpyxl.utils import get_column_letter
 
 # %%
 timelist = []
+# %%
+# Connect to KIRA server
+start = time.time()
 
-# %% define methods
-def loadsecret():
-    import json
-    desktoploc=r'C:\Users\dokim2\OneDrive - Kiss Products Inc\Desktop'
-    with open(desktoploc+'\IVYENT_DH\data.json', 'r') as f:
-        data = json.load(f)
-    return data
+import json
+desktoploc=r'C:\Users\dokim2\OneDrive - Kiss Products Inc\Desktop'
 
-def connectSQLserver(data):
-    server = data['server']
-    database = data['database']
-    username = data['username']
-    password = data['password']
-    connection_string = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + \
+with open(desktoploc+'\IVYENT_DH\data.json', 'r') as f:
+    data = json.load(f)
+desktoploc=r'C:\Users\dokim2\Documents\Stock Check Result'
+
+# getID and password
+server = data['server']
+database = data['database']
+username = data['username']
+password = data['password']
+connection_string = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + \
     server+';DATABASE='+database+';UID='+username+';PWD=' + password
-    connection_url = URL.create(
+connection_url = URL.create(
     "mssql+pyodbc", query={"odbc_connect": connection_string})
-    engine = create_engine(connection_url, fast_executemany=True)
-    print("Connection Established:")
-    return engine
+engine = create_engine(connection_url, fast_executemany=True)
+print("Connection Established:")
 
-def getDateInfo():
-    todays = datetime.today()
-    today = todays.strftime('%Y-%m-%d')
-    curYM = todays.strftime('%Y%m')
-    return todays,today,curYM
+end = time.time()
+timelist.append([end-start, "Connect to KIRA server"])
 
-def getOrderLimit_df(engine):
-    orderlimit_df = pd.read_sql("""SELECT material, plant, from_date, to_date, max_qty FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
-    orderlimit_df.columns = ['material','plant', 'from_date', 'to_date','max_qty']
-    orderlimit_df['orderlimit'] = 1
-    orderlimit_df = orderlimit_df.drop_duplicates(subset='material')
-    print("orderlimit sql table is ready")
-    return orderlimit_df
+# %%
 
-def getBom_df(engine):
-    bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.bom_aset] GROUP BY bom_parent_material""", con=engine)
-    bom_df['bom'] = 1 
-    print("bom_aset sql table is ready")
-    return bom_df
-
-def getMrp01_ms(engine):
-    mrp01_ms = pd.read_sql("""select material, pl_plant as plant, ms from [ivy.mm.dim.mrp01] """, con=engine) #dim.mtrl
-    print("mrp01_ms sql table is ready")
-    return mrp01_ms
-
-def getInput_order(getOrderLimit_df, getBom_df, getMrp01_ms, engine):
-    loc_input = r'C:\Users\dokim2\Documents\Stock Check Result'+'\simulator_input.csv'
-    input0=pd.read_csv(loc_input)
-    input0['plant'] = input0['plant'].astype(str)
-    input0['salesorg'] = input0['salesorg'].astype(str)
+todays = datetime.today()
+today = todays.strftime('%Y-%m-%d')
+curYM = todays.strftime('%Y%m')
+# %%
+# read simulator_input.csv
+# simulator
+loc_input = r'C:\Users\dokim2\Documents\Stock Check Result'+'\simulator_input.csv'
+input0=pd.read_csv(loc_input)
+input0['plant'] = input0['plant'].astype(str)
+input0['salesorg'] = input0['salesorg'].astype(str)
 
 #
-    orderlimit_df = getOrderLimit_df(engine)
+orderlimit_df = pd.read_sql("""SELECT material, plant, from_date, to_date, max_qty FROM [ivy.mm.dim.orderlimit] WHERE from_date<=GETDATE() and to_date>=GETDATE()""", con=engine)
+orderlimit_df.columns = ['material','plant', 'from_date', 'to_date','max_qty']
+orderlimit_df['orderlimit'] = 1
+orderlimit_df = orderlimit_df.drop_duplicates(subset='material')
+print("orderlimit sql table is ready")
 
-# BOM (dimbom_aset)
-    bom_df = getBom_df(engine)
+# %% BOM (dimbom_aset)
+bom_df = pd.read_sql("""select bom_parent_material as material from [ivy.mm.dim.bom_aset] GROUP BY bom_parent_material""", con=engine)
+bom_df['bom'] = 1 
+print("bom_aset sql table is ready")
 
-# dim.mtrl for ms
-    mrp01_ms = getMrp01_ms(engine)
-# Final_df : master table
-    merge4_df = pd.merge(input0, orderlimit_df, on=['material','plant'], how='left') #if order limit, then orderlimit column == 1
-    merge5_df = pd.merge(merge4_df, mrp01_ms, on=['material','plant'], how='left') #add ms in input0
-    merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
+# %% dim.mtrl for ms
+mrp01_ms = pd.read_sql("""select material, pl_plant as plant, ms from [ivy.mm.dim.mrp01] """, con=engine) #dim.mtrl
+print("mrp01_ms sql table is ready")
+# %% Final_df : master table
+merge4_df = pd.merge(input0, orderlimit_df, on=['material','plant'], how='left') #if order limit, then orderlimit column == 1
+merge5_df = pd.merge(merge4_df, mrp01_ms, on=['material','plant'], how='left') #add ms in input0
+merge6_df = pd.merge(merge5_df, bom_df, on='material', how='left') #if bom, then bom column == 1
 
-# 
-    final_df = merge6_df[['material', 'plant', 'qty','orderlimit', 'bom','ms']]
-    final_df.columns = ['material', 'plant', 'qty','orderlimit', 'bom','ms']
-    final_df.insert(5,'availability','None')
-    final_df.loc[:,['orderlimit','bom']] = final_df[['orderlimit','bom']].fillna(0)
-    final_df.loc[:,'orderlimit'] = final_df['orderlimit'].astype('int')
-    final_df.loc[:,'bom'] = final_df['bom'].astype('int')
-    final_df.loc[:,'plant'] = final_df['plant'].astype('str')
-    final_df.reset_index(inplace=True)
-    final_df.drop(['index'], axis=1, inplace=True)
+# %%
+final_df = merge6_df[['material', 'plant', 'qty','orderlimit', 'bom','ms']]
+final_df.columns = ['material', 'plant', 'qty','orderlimit', 'bom','ms']
+final_df.insert(5,'availability','None')
+final_df.loc[:,['orderlimit','bom']] = final_df[['orderlimit','bom']].fillna(0)
+final_df.loc[:,'orderlimit'] = final_df['orderlimit'].astype('int')
+final_df.loc[:,'bom'] = final_df['bom'].astype('int')
+final_df.loc[:,'plant'] = final_df['plant'].astype('str')
+final_df.reset_index(inplace=True)
+final_df.drop(['index'], axis=1, inplace=True)
 
-#
+# %%
 #Ivy
-    salesorg= str(input0.loc[0,"salesorg"])
-    if salesorg == '1300': #For AST orders, we do not check for plant 1000
-        plant_list = ['1100', '1110']
 
-    elif salesorg== '1100':
-        plant_list = ['1000', '1100', '1110']
+salesorg= str(input0.loc[0,"salesorg"])
+if salesorg == '1300': #For AST orders, we do not check for plant 1000
+    plant_list = ['1100', '1110']
 
-    else:
-        plant_list = ['1400', '1410', 'G140']
+elif salesorg== '1100':
+    plant_list = ['1000', '1100', '1110']
 
-    final_df = final_df[final_df['plant'].isin(plant_list)]
+# elif salesorg in ['1400','G140']
+else:
+    plant_list = ['1400', '1410', 'G140']
 
-    if "order_number" in input0.columns:
-        order_number=input0.loc[0,'order_number']
-        final_df.insert(7,'order_number',order_number)
-    print(final_df)
+final_df = final_df[final_df['plant'].isin(plant_list)]
 
-    input=final_df.copy()
+if "order_number" in input0.columns:
+    order_number=input0.loc[0,'order_number']
+    final_df.insert(7,'order_number',order_number)
+print(final_df)
+
+final_df.loc[:,'plant'] = final_df['plant'].astype('int')
+
+input=final_df.copy()
 #
-    inputKDC = input[~input['plant'].isin(["1110", "1410"])]
-    inputLA = input[input['plant'].isin(["1110", "1410"])]
+inputKDC=input.loc[input.plant%100==0] # it could be problem if G140 replace 1400
+inputLA=input.loc[input.plant%100!=0] # it could be problem if G140 replace 1400
+input_order =input.reset_index()
 
-    input_order =input.reset_index()
-    return loc_input,orderlimit_df,salesorg,input,inputKDC,inputLA,input_order
+# %%
+# %%
+# df_po = pd.read_sql("""SELECT material, act_date, sum(po_qty+asn_qty) as poasn_qty FROM [ivy.mm.dim.fact_poasn]
+# GROUP BY material, act_date
+# """, con=engine)
+# df_po.head()
 
+# %%
+# define DailyCalculate
+start = time.time()
 def DailyCalculate(df):
     half_flag = False
     if int(todays.strftime('%d')) > 15:
@@ -224,6 +229,10 @@ def DailyCalculate(df):
     df["BO$"] = df["BOqty"]*df["nsp"]
     # df=df.loc[df.BOseq!=999]
     return df
+
+end = time.time()
+timelist.append([end-start, "def DailyCalculate(df):"])
+# %%
 # define simulate_KDC_LA 
 ################################################################
 def simulate_KDC_LA(targetPlant):
@@ -360,7 +369,7 @@ def simulate_KDC_LA(targetPlant):
         replace_material='\''+'\',\''.join(map(str,list(inputLA.material)))+'\''    
     sql_string=sql_string.replace("'change_string'",replace_material)
 
-    #
+    # %% 
     df_ft = pd.read_sql(sql_string, con=engine)
 
     print("full table is ready")
@@ -385,7 +394,7 @@ def simulate_KDC_LA(targetPlant):
     timelist.append([end-start, "Get full table from SQL server"])
 
 
-    #
+    # %%
     # define location
     start = time.time()
     file_loc = desktoploc+'\simulation'
@@ -412,6 +421,7 @@ def simulate_KDC_LA(targetPlant):
     timelist.append(
         [end-start, """df_total = df_ft.groupby(["mtrl", "TheDate"]).sum()"""])
 
+    # %%
     # apply DailyCalculate to df_total and save as csv
 
     start = time.time()
@@ -437,6 +447,7 @@ def simulate_KDC_LA(targetPlant):
     end = time.time()
     timelist.append([end-start, "caluculate Daily and to_csv result"])
 
+    # %%
     df_mtrl= pd.read_sql("""SELECT material, ms, pdt FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
     df_mtrl.head()
 
@@ -453,6 +464,7 @@ def simulate_KDC_LA(targetPlant):
     """, con=engine) 
     df_po.head()
 
+    # %%
     # group by mtrl and BOseq to show summary data of BOdates and BOqty,BO$
     # plot the BOdates, save the summary csv and png file
     start = time.time()
@@ -511,15 +523,14 @@ def simulate_KDC_LA(targetPlant):
         0), axis=1)    
 
         df_result1['#BOdays_bf_pdt'] =df_result1.apply(lambda row: 0 if row.bo_bf_pdt=="no" else row['#BOdays_bf_pdt'], axis=1)
-        df_result1['BOqty_bf_pdt']= df_result1.apply(lambda row: 0 if row['#ofBOdays']==0 else row['#BOdays_bf_pdt']*row['BOqty']/row['#ofBOdays'],axis=1)
 
         df_result1=df_result1.rename(columns ={'pdt':'adj. pdt'})
         df_result1['loc']='simulation'
         df_result1.loc[df_result1["BOseq"]!=-1].to_csv(result_loc, index=False)
-
     end = time.time()
     timelist.append([end-start, "caluculate BO.csv"])
 
+    # %%
     # simulator
     # df_simulation= df_sumBOseq.merge(inputKDC[inputKDC["plant"]%100==0], left_on=['mtrl'],right_on=['material']) 
     if "ms" in df_result1.columns:
@@ -567,7 +578,7 @@ def simulate_KDC_LA(targetPlant):
     # df_simulation= df_simulation[["material","plant","qty","availability","eta",'ms','bo_bf_pdt','po_date','poasn_qty','#BOdays_bf_pdt','adj. pdt']]
     try:
         columns = ["material", "plant", "qty", "availability", "eta", 'ms',
-                'bo_bf_pdt','po_date', 'poasn_qty', '#BOdays_bf_pdt','BOqty_bf_pdt', 'adj. pdt','StartDate']
+                'bo_bf_pdt', 'po_date', 'poasn_qty', '#BOdays_bf_pdt', 'adj. pdt','StartDate']
         df_simulation = df_simulation.reindex(columns=columns)
     except KeyError as e:
         print(f"The following columns are not present in the DataFrame: {e}")
@@ -583,116 +594,17 @@ def simulate_KDC_LA(targetPlant):
 
     return df_simulation, df_result1
 
+    # end simulator
 
-def formatResultFile(salesorg, input, resultLoc, simul_loc):
-    wb = load_workbook(simul_loc) #Change Location - (type 2)
-    ws = wb.active
-    max_row = ws.max_row
-    max_column = ws.max_column
-
-# conditional formatting : availablity
-    green_format = PatternFill(fgColor = '00CCFFCC', fill_type='solid')
-    red_format = PatternFill(fgColor = '00FF8080', fill_type='solid')
-    blue_format = PatternFill(fgColor = '0000FF80', fill_type='solid')
-    for k in range(1,max_row+1):
-        result_value = str(ws.cell(row=k, column=4).value)
-        if result_value == "NO":
-            ws.cell(row=k, column=4).fill = red_format
-            ws.cell(row=k, column=4).font = Font(color = '00800000')
-        elif result_value == "OK":
-            ws.cell(row=k, column=4).fill = green_format
-            ws.cell(row=k, column=4).font = Font(color = '00008000')
-        elif result_value == "YES":
-            ws.cell(row=k, column=4).fill = blue_format
-            ws.cell(row=k, column=4).font = Font(color = '00008000')
-        else:
-            ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
-    for k in range(1,max_row+1): # 1000, 1110
-        result_value = str(ws.cell(row=k, column=2).value)
-        if result_value == '1000':
-            ws.cell(row=k, column=2).fill = red_format
-            ws.cell(row=k, column=2).font = Font(color = '00800000')
-        elif result_value == '1110':
-            ws.cell(row=k, column=2).fill = green_format
-            ws.cell(row=k, column=2).font = Font(color = '00008000')
-        else:
-            ws.cell(row=k, column=2).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
-    for k in range(1,max_row+1): # NO and yes
-        result_value = str(ws.cell(row=k, column=4).value)
-        result_value2 = str(ws.cell(row=k, column=7).value)
-        if result_value == 'NO' and result_value2=='yes':
-            ws.cell(row=k, column=7).fill = red_format
-            ws.cell(row=k, column=4).fill = red_format
-            ws.cell(row=k, column=7).font = Font(color = '00800000')
-        elif result_value == 'NO' and result_value2=='no':
-            ws.cell(row=k, column=7).fill = blue_format
-            ws.cell(row=k, column=7).font = Font(color = '00800000')
-    for k in range(1,max_row+1): # ms 91 or 41
-        result_value = str(ws.cell(row=k, column=6).value)
-        if (result_value == '41') or (result_value=='91'):
-            ws.cell(row=k, column=6).fill = blue_format
-            ws.cell(row=k, column=7).font = Font(color = '00800000')   
-
-    for column_cells in ws.columns:
-        new_column_length = max(len(str(cell.value)) for cell in column_cells)
-        new_column_letter = (get_column_letter(column_cells[0].column))
-        if new_column_length > 0:
-            ws.column_dimensions[new_column_letter].width = new_column_length*1.3
-    ws.column_dimensions[get_column_letter(5)].width = 20  
-
-# Border
-
-# for r in range(1,max_row+1):
-#     for c in range(1,max_column+1):
-
-    if "order_number" in input.columns:
-        if salesorg=='1400':
-            simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_red.xlsx"
-        else:
-            simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_ivy.xlsx"
-    else:
-        simul_loc = simul_loc
-    wb.save(simul_loc) #Change Location - (type 2)
-    wb.close()
-
-def getDf_mrp01(timelist, engine, input):
-    start = time.time()
-    replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
-    sql_string="""SELECT material, pl_plant as plant, total_stock FROM [ivy.mm.dim.mrp01] WHERE material in ('change_string')
-"""
-
-    sql_string1=sql_string.replace("'change_string'",replace_material)
-    df_mrp01 = pd.read_sql(sql_string1, con=engine)
+    # %%
+    total_loc = file_loc+"\\"+today+"_"+targetPlant+"_ESA.csv"
+    df_total = df_total[['mtrl', 'TheDate', 'On_hand_qty',
+                        'residue', 'fcstD',  'BOqty', 'BO$', 'BOseq','loc']].copy()
+    df_total.to_csv(total_loc, index=False)
+    print('exporting BOdate.csv was done')
 
     end = time.time()
-    timelist.append([end-start, "Get mrp01 total stock"])
-    return df_mrp01
-
-# %%
-# Connect to KIRA server
-start = time.time()
-
-data = loadsecret()
-desktoploc=r'C:\Users\dokim2\Documents\Stock Check Result'
-
-engine = connectSQLserver(data)
-
-end = time.time()
-timelist.append([end-start, "Connect to KIRA server"])
-
-# %%
-todays, today, curYM = getDateInfo()
-# %%
-# read simulator_input.csv
-# simulator
-loc_input, orderlimit_df, salesorg, input, inputKDC, inputLA, input_order = getInput_order(getOrderLimit_df, getBom_df, getMrp01_ms, engine)
-
-# %%
-# define DailyCalculate
-start = time.time()
-
-end = time.time()
-timelist.append([end-start, "def DailyCalculate(df):"])
+    timelist.append([end-start, "caluculate BOdate.csv"])
 
 # end simulate_KDC_LA function
 if(len(inputKDC)>0):
@@ -709,18 +621,29 @@ if(len(inputLA)>0):
 ################################################################
 print('LA end')
 # %% 
-df_mrp01=getDf_mrp01(timelist, engine, input)
-df_mtrl_ipct= pd.read_sql("""SELECT material, ip,ct FROM [ivy.mm.dim.mtrl]""", con=engine) #dim.mtrl
+#dim.mtrl
+# replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
+# sql_string="""SELECT material, pdt FROM [ivy.mm.dim.mtrl] WHERE material in ('change_string')
+# """
 
+# sql_string1=sql_string.replace("'change_string'",replace_material)
+# df_pdt = pd.read_sql(sql_string1, con=engine)
+
+replace_material='\''+'\',\''.join(map(str,list(input.material)))+'\''
+sql_string="""SELECT material, pl_plant as plant, total_stock FROM [ivy.mm.dim.mrp01] WHERE material in ('change_string')
+"""
+
+sql_string1=sql_string.replace("'change_string'",replace_material)
+df_mrp01 = pd.read_sql(sql_string1, con=engine) # TODO: add to result file
+
+end = time.time()
+timelist.append([end-start, "Get mrp01 total stock"])
 # %%
 
 if "order_number" in input.columns:
     # stockcheck
     resultLoc=desktoploc #+"\stock check practice"
-    if salesorg=='1400':
-        simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_red.xlsx"
-    else:
-        simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_ivy.xlsx"
+    simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_ivy.xlsx"
     simul_loc1 = resultLoc+"\\"+str(input.order_number.values[0])+"_bo.csv"
 else:
     # simulation
@@ -739,10 +662,18 @@ else:
     df_result1=pd.concat(df_result1_KDC,df_result1_LA)
 
 # df_result=df_result.merge(df_pdt,how="left")
-df_result=df_result.merge(df_mrp01, how='left',on=['material','plant'])
-df_result=df_result.merge(df_mtrl_ipct,how='left',on='material')
 df_result["today+pdt"]= df_result["adj. pdt"].apply(lambda x: datetime.strftime(datetime.today() + relativedelta(days=x)
     , ('%Y-%m-%d')  )     if x>0 else "")          
+# df_result["ms"]= df_result["ms"].apply(lambda x: format(x,'2d'))          
+
+# df_result["eta2"]=''
+# for index, row in df_result.iterrows():
+#     # print(row)
+#     if row["availability"]=="NO":
+#         exp_bodate=datetime.strptime(row.eta.split(' ')[0],'%Y-%m-%d')
+#         pdtafterdate=datetime.strptime(row["today+pdt"],'%Y-%m-%d')
+#         if (exp_bodate-pdtafterdate).days<0:
+#             df_result.loc[index,"eta2"]="bo bf pdt"
 
 df_result=input_order.loc[:,["index","material","plant"]].merge(df_result).drop("index",axis=1)
 df_result["availability"]=df_result.apply(lambda row: "YES" if (row["availability"]=="NO") & (row["bo_bf_pdt"]=="no") \
@@ -750,11 +681,77 @@ df_result["availability"]=df_result.apply(lambda row: "YES" if (row["availabilit
 df_result["eta"]=df_result.apply(lambda row: "" if (row["availability"]=="YES") else row["eta"] ,axis=1)
 
 df_result.to_excel(simul_loc,index=False)
-# df_result1["BOdays/BOqty"]=df_result1["#ofBOdays"]/df_result1["BOqty"]
+df_result1["BOdays/BOqty"]=df_result1["#ofBOdays"]/df_result1["BOqty"]
+
 # df_result1.to_csv(simul_loc1,index=False) 
 
 # %%
-formatResultFile(salesorg, input, resultLoc, simul_loc)
+wb = load_workbook(simul_loc) #Change Location - (type 2)
+ws = wb.active
+max_row = ws.max_row
+max_column = ws.max_column
+
+# conditional formatting : availablity
+green_format = PatternFill(fgColor = '00CCFFCC', fill_type='solid')
+red_format = PatternFill(fgColor = '00FF8080', fill_type='solid')
+blue_format = PatternFill(fgColor = '0000FF80', fill_type='solid')
+for k in range(1,max_row+1):
+    result_value = str(ws.cell(row=k, column=4).value)
+    if result_value == "NO":
+        ws.cell(row=k, column=4).fill = red_format
+        ws.cell(row=k, column=4).font = Font(color = '00800000')
+    elif result_value == "OK":
+        ws.cell(row=k, column=4).fill = green_format
+        ws.cell(row=k, column=4).font = Font(color = '00008000')
+    elif result_value == "YES":
+        ws.cell(row=k, column=4).fill = blue_format
+        ws.cell(row=k, column=4).font = Font(color = '00008000')
+    else:
+        ws.cell(row=k, column=4).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
+for k in range(1,max_row+1): # 1000, 1110
+    result_value = str(ws.cell(row=k, column=2).value)
+    if result_value == '1000':
+        ws.cell(row=k, column=2).fill = red_format
+        ws.cell(row=k, column=2).font = Font(color = '00800000')
+    elif result_value == '1110':
+        ws.cell(row=k, column=2).fill = green_format
+        ws.cell(row=k, column=2).font = Font(color = '00008000')
+    else:
+        ws.cell(row=k, column=2).fill = PatternFill(fgColor = '00FFFFFF', fill_type='solid')
+for k in range(1,max_row+1): # NO and yes
+    result_value = str(ws.cell(row=k, column=4).value)
+    result_value2 = str(ws.cell(row=k, column=7).value)
+    if result_value == 'NO' and result_value2=='yes':
+        ws.cell(row=k, column=7).fill = red_format
+        ws.cell(row=k, column=4).fill = red_format
+        ws.cell(row=k, column=7).font = Font(color = '00800000')
+    elif result_value == 'NO' and result_value2=='no':
+        ws.cell(row=k, column=7).fill = blue_format
+        ws.cell(row=k, column=7).font = Font(color = '00800000')
+for k in range(1,max_row+1): # ms 91 or 41
+    result_value = str(ws.cell(row=k, column=6).value)
+    if (result_value == '41') or (result_value=='91'):
+        ws.cell(row=k, column=6).fill = blue_format
+        ws.cell(row=k, column=7).font = Font(color = '00800000')   
+
+for column_cells in ws.columns:
+    new_column_length = max(len(str(cell.value)) for cell in column_cells)
+    new_column_letter = (get_column_letter(column_cells[0].column))
+    if new_column_length > 0:
+        ws.column_dimensions[new_column_letter].width = new_column_length*1.3
+
+# Border
+
+# for r in range(1,max_row+1):
+#     for c in range(1,max_column+1):
+#         ws.cell(row=r, column=c).border = Border(top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000'), left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'))
+if "order_number" in input.columns:
+    simul_loc = resultLoc+"\\"+"SC"+str(input.order_number.values[0])+"_ivy.xlsx"
+else:
+    simul_loc = simul_loc
+wb.save(simul_loc) #Change Location - (type 2)
+wb.close()
+
 print('Stock check completed!')
 
 # %%
